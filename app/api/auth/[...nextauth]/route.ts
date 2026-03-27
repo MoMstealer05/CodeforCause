@@ -53,11 +53,19 @@ const handler = NextAuth({
 
   callbacks: {
     async signIn({ user, account }) {
-      if (account?.provider === "google") {
-        return !!user.email?.toLowerCase().endsWith("@charusat.edu.in");
-      }
-      return true;
-    },
+  if (account?.provider === "google") {
+    // 🛡️ Ensure email is lowercase and trimmed before checking
+    const email = user.email?.toLowerCase().trim();
+    const isCharusat = email?.endsWith("@charusat.edu.in");
+    
+    if (!isCharusat) {
+      console.log(`[ AUTH_DENIED ]: ${email} failed domain check.`);
+      return false; 
+    }
+    return true;
+  }
+  return true;
+},
 
     async jwt({ token, user }) {
       if (user) {
