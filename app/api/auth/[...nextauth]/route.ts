@@ -14,13 +14,14 @@ declare module "next-auth" {
 }
 
 const handler = NextAuth({
+  // Link to your Firebase Firestore
   adapter: FirestoreAdapter(db as any), 
 
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      // Allows linking Google to an existing email/password account
+      // Allows linking Google to an existing email/password account if emails match
       allowDangerousEmailAccountLinking: true, 
     }),
 
@@ -31,7 +32,7 @@ const handler = NextAuth({
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
-        // Verification happens in the frontend; we pass it to the session here
+        // Manual login logic (used for local testing or secondary admin access)
         if (credentials?.email) {
           return { 
             id: credentials.email, 
@@ -48,16 +49,24 @@ const handler = NextAuth({
     strategy: "jwt",
   },
 
+  secret: process.env.NEXTAUTH_SECRET,
+
   callbacks: {
-    // 1. 🛡️ YOUR SECURITY GATE: Only allow CHARUSAT emails for Google
+    // 1. 🛡️ STRICT FILTER: Only allow CHARUSAT emails for Google Auth
     async signIn({ user, account }) {
       if (account?.provider === "google") {
-        return !!user.email?.endsWith("@charusat.edu.in"); 
+        const email = user.email?.toLowerCase();
+        const isCharusat = email?.endsWith("@charusat.edu.in");
+        
+        if (!isCharusat) {
+          console.log(`[ AUTH_DENIED ]: ${email} is not a valid @charusat.edu.in account.`);
+          return false; 
+        }
       }
       return true;
     },
 
-    // 2. JWT Callback: Required to pass user data to the session
+    // 2. JWT Callback: Passes user info to the token
     async jwt({ token, user }) {
       if (user) {
         token.email = user.email;
@@ -66,7 +75,7 @@ const handler = NextAuth({
       return token;
     },
 
-    // 3. 🎯 YOUR SESSION SYNC: Ensures ClientLayout sees the email
+    // 3. Session Callback: Synchronizes token data to the frontend session object
     async session({ session, token }) {
       if (session.user) {
         session.user.email = token.email as string;
@@ -75,15 +84,17 @@ const handler = NextAuth({
       return session;
     },
 
-    async redirect({ baseUrl }) {
-      return baseUrl; 
+    // 4. Redirect Logic: Prevents the "callback loop" on Vercel
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      else if (new URL(url).origin === baseUrl) return url;
+      return baseUrl;
     },
   },
 
-  secret: process.env.NEXTAUTH_SECRET,
-  
   pages: {
     signIn: "/login",
+    error: "/login", // Redirects any Auth errors back to your custom terminal login
   },
 });
 
