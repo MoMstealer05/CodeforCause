@@ -1,0 +1,139 @@
+"use client";
+import { useState, useEffect, Suspense } from "react";
+import { auth, db } from "@/lib/firebase";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+
+function RegisterContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const emailParam = searchParams.get("email");
+    if (emailParam) setEmail(emailParam);
+  }, [searchParams]);
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const isCharusat = email.endsWith("@charusat.ac.in") || email.endsWith("@charusat.edu.in");
+    
+    if (!isCharusat) {
+      alert("CRITICAL_ERROR: Access restricted to @charusat domains.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      try {
+        await setDoc(doc(db, "users", user.uid), {
+          uid: user.uid,
+          displayName: name,
+          email: email,
+          role: "student",
+          initializedAt: new Date().toISOString(),
+        });
+      } catch (dbError) {
+        console.error("Firestore Init Error:", dbError);
+      }
+
+      alert("IDENTITY_INITIALIZED.");
+      window.location.href = "/login"; 
+      
+    } catch (error: any) {
+      alert("INITIALIZATION_FAILED: " + error.message);
+      setLoading(false);
+    }
+  }; // <--- THIS BRACKET was likely missing or misplaced!
+
+  return (
+    <main style={containerStyle}>
+      <div style={cardStyle}>
+        <div style={headerStyle}>
+          <div style={badgeStyle}>INITIALIZE_NEW_NODE</div>
+          <h1 style={titleStyle}>System Registration</h1>
+        </div>
+
+        <form onSubmit={handleRegister} style={formStyle}>
+          <div style={inputGroup}>
+            <label style={labelStyle}>FULL_NAME</label>
+            <input 
+              type="text" 
+              placeholder="Enter full name..." 
+              required 
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={inputStyle} 
+            />
+          </div>
+
+          <div style={inputGroup}>
+            <label style={labelStyle}>EMAIL_IDENTITY</label>
+            <input 
+              type="email" 
+              placeholder="university_id@charusat..." 
+              required 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={inputStyle} 
+            />
+          </div>
+
+          <div style={inputGroup}>
+            <label style={labelStyle}>ACCESS_KEY</label>
+            <input 
+              type="password" 
+              placeholder="Set secure password..." 
+              required 
+              onChange={(e) => setPassword(e.target.value)}
+              style={inputStyle} 
+            />
+          </div>
+
+          <button type="submit" disabled={loading} style={btnStyle}>
+            {loading ? "COMMITTING..." : "INITIALIZE_PROFILE →"}
+          </button>
+        </form>
+
+        <div style={footerStyle}>
+          <Link href="/login" style={linkStyle}>
+            &lt; RETURN_TO_LOGIN
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// --- STYLES ---
+const containerStyle = { minHeight: 'calc(100vh - 44px)', backgroundColor: '#050A14', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' };
+const cardStyle = { width: '100%', maxWidth: '450px', backgroundColor: '#0B111A', border: '1px solid rgba(80, 250, 123, 0.2)', borderRadius: '24px', padding: '40px 32px' };
+const headerStyle = { textAlign: 'center' as const, marginBottom: '32px' };
+const badgeStyle = { display: 'inline-block', padding: '4px 12px', backgroundColor: 'rgba(80, 250, 123, 0.1)', color: '#50fa7b', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', marginBottom: '12px', border: '1px solid rgba(80, 250, 123, 0.3)' };
+const titleStyle = { color: '#fff', fontSize: '24px', fontWeight: 900, marginBottom: '8px' };
+const formStyle = { display: 'flex', flexDirection: 'column' as const, gap: '20px' };
+const inputGroup = { display: 'flex', flexDirection: 'column' as const, gap: '8px' };
+const labelStyle = { color: '#fff', fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' };
+const inputStyle = { width: '100%', backgroundColor: '#000', border: '1px solid #2a2e3f', borderRadius: '12px', padding: '14px', color: '#fff', outline: 'none', fontFamily: 'monospace' };
+const btnStyle = { width: '100%', backgroundColor: '#50fa7b', color: '#000', border: 'none', borderRadius: '12px', padding: '16px', fontWeight: 900, cursor: 'pointer', marginTop: '10px' };
+const footerStyle = { marginTop: '24px', textAlign: 'center' as const };
+const linkStyle = { color: '#666', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold' };
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div style={{color: '#50fa7b'}}>LOADING...</div>}>
+      <RegisterContent />
+    </Suspense>
+  );
+}
