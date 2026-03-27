@@ -15,7 +15,7 @@ declare module "next-auth" {
 
 const handler = NextAuth({
   // Link to your Firebase Firestore
-  adapter: FirestoreAdapter(db as any), 
+ // adapter: FirestoreAdapter(db as any), 
 
   providers: [
     GoogleProvider({
@@ -54,19 +54,16 @@ const handler = NextAuth({
   callbacks: {
     async signIn({ user, account }) {
   if (account?.provider === "google") {
-    // 🛡️ Ensure email is lowercase and trimmed before checking
     const email = user.email?.toLowerCase().trim();
-    const isCharusat = email?.endsWith("@charusat.edu.in");
-    
-    if (!isCharusat) {
-      console.log(`[ AUTH_DENIED ]: ${email} failed domain check.`);
-      return false; 
+    console.log("LOGIN_ATTEMPT_FROM:", email); // This will show in Vercel Logs
+
+    if (email && email.endsWith("@charusat.edu.in")) {
+      return true;
     }
-    return true;
+    return false; // Rejects anyone else
   }
   return true;
 },
-
     async jwt({ token, user }) {
       if (user) {
         token.email = user.email;
