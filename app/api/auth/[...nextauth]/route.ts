@@ -32,17 +32,16 @@ const handler = NextAuth({
     password: { label: "Password", type: "password" }
   },
   async authorize(credentials) {
-    if (credentials?.email) {
-      return { 
-        id: credentials.email, 
-        email: credentials.email, 
-        name: "Root Admin",
-        // 🎯 ADD THIS: A default avatar for manual logins
-        image: "https://ui-avatars.com/api/?name=Root+Admin&background=00d2ff&color=fff" 
-      };
-    }
-    return null;
+  if (credentials?.email) {
+    // 🎯 We pass the email as the 'name' so the frontend can use it for initials
+    return { 
+      id: credentials.email, 
+      email: credentials.email, 
+      name: credentials.email.split('@')[0] // Takes '23ec017' from the email
+    };
   }
+  return null;
+}
 }),
   ],
 
@@ -77,13 +76,14 @@ const handler = NextAuth({
   },
 
   async session({ session, token }) {
-    if (session.user) {
-      session.user.email = token.email as string;
-      session.user.id = token.id as string;
-      session.user.image = token.picture as string; // 🎯 Sync it to the session
-    }
-    return session;
-  },
+  if (session.user) {
+    session.user.email = token.email as string;
+    session.user.id = token.id as string;
+    session.user.image = token.picture as string;
+    session.user.name = token.name as string; // 🎯 Crucial for the initials
+  }
+  return session;
+},
 
     async redirect({ url, baseUrl }) {
       // 🎯 FORCE the redirect to the main domain to break the loop
