@@ -14,7 +14,7 @@ declare module "next-auth" {
 }
 
 const handler = NextAuth({
-  // 🎯 RE-ENABLED: Link to your Firebase Firestore
+  // 🎯 RE-ENABLED: Firestore Database Connection
   adapter: FirestoreAdapter(db as any), 
 
   providers: [
@@ -35,6 +35,7 @@ const handler = NextAuth({
           return { 
             id: credentials.email, 
             email: credentials.email, 
+            // Splits 'email@domain.com' to get 'email' for initials logic
             name: credentials.email.split('@')[0] 
           };
         }
@@ -44,7 +45,7 @@ const handler = NextAuth({
   ],
 
   session: {
-    strategy: "jwt",
+    strategy: "jwt", // Keeps sessions fast and breaks callback loops
   },
 
   secret: process.env.NEXTAUTH_SECRET,
@@ -68,7 +69,7 @@ const handler = NextAuth({
         token.email = user.email;
         token.id = user.id;
         token.picture = user.image;
-        token.name = user.name; // 🎯 ADDED: Captures name for initials logic
+        token.name = user.name; // 🎯 PERSISTS NAME: Needed for ClientLayout initials
       }
       return token;
     },
@@ -89,7 +90,8 @@ const handler = NextAuth({
       return baseUrl;
     },
   },
-  debug: true,
+  
+  debug: true, // Visible in Vercel Logs for troubleshooting
 });
 
 export { handler as GET, handler as POST };
