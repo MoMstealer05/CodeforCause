@@ -3,7 +3,7 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  // 🎯 NEXT_PUBLIC_ is required for "use client" components
+  // 🎯 Vercel Environment Variables MUST match these names exactly
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -12,9 +12,9 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Singleton pattern to prevent "Duplicate App" errors in Next.js
+// Singleton pattern to prevent "Duplicate App" errors on Vercel
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const auth = getAuth(app); // 🎯 Added this so your login page can import it
+const auth = getAuth(app); 
 
 export { db, auth, app };

@@ -1,8 +1,8 @@
 import NextAuth, { DefaultSession } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { FirestoreAdapter } from "@auth/firebase-adapter";
-import { db } from "@/lib/firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase"; 
 
 // --- TYPESCRIPT OVERRIDE ---
 declare module "next-auth" {
@@ -14,9 +14,8 @@ declare module "next-auth" {
 }
 
 const handler = NextAuth({
-  // 🎯 RE-ENABLED: Firestore Database Connection
-  adapter: FirestoreAdapter(db as any), 
-
+  // 🎯 Adapter is intentionally left out to prevent the Admin SDK crash
+  
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -31,21 +30,36 @@ const handler = NextAuth({
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
-        if (credentials?.email) {
-          return { 
-            id: credentials.email, 
-            email: credentials.email, 
-            // Splits 'email@domain.com' to get 'email' for initials logic
-            name: credentials.email.split('@')[0] 
-          };
+        if (!credentials?.email || !credentials?.password) {
+          return null; 
         }
-        return null;
+
+        try {
+          // 🎯 FIREBASE CHECK: Validates the password against the Firebase Auth database
+          const userCredential = await signInWithEmailAndPassword(
+            auth, 
+            credentials.email, 
+            credentials.password
+          );
+          
+          const user = userCredential.user;
+
+          // Passes the verified user to NextAuth
+          return { 
+            id: user.uid, 
+            email: user.email, 
+            name: user.email?.split('@')[0] || "User"
+          };
+        } catch (error: any) {
+          console.error("FIREBASE_AUTH_FAILED:", error.code);
+          return null; 
+        }
       }
     }),
   ],
 
   session: {
-    strategy: "jwt", // Keeps sessions fast and breaks callback loops
+    strategy: "jwt",
   },
 
   secret: process.env.NEXTAUTH_SECRET,
@@ -54,14 +68,13 @@ const handler = NextAuth({
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         const email = user.email?.toLowerCase().trim();
-        console.log("LOGIN_ATTEMPT_FROM:", email);
-
+        // 🎯 Blocks non-university Google accounts
         if (email && email.endsWith("@charusat.edu.in")) {
           return true;
         }
         return false; 
       }
-      return true;
+      return true; // Allows Custom Credentials to pass through
     },
     
     async jwt({ token, user }) {
@@ -69,7 +82,7 @@ const handler = NextAuth({
         token.email = user.email;
         token.id = user.id;
         token.picture = user.image;
-        token.name = user.name; // 🎯 PERSISTS NAME: Needed for ClientLayout initials
+        token.name = user.name; 
       }
       return token;
     },
@@ -91,7 +104,7 @@ const handler = NextAuth({
     },
   },
   
-  debug: true, // Visible in Vercel Logs for troubleshooting
+  debug: true, 
 });
 
 export { handler as GET, handler as POST };
