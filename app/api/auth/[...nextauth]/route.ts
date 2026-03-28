@@ -4,7 +4,6 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { FirestoreAdapter } from "@auth/firebase-adapter";
 import { db } from "@/lib/firebase";
 
-// --- TYPESCRIPT OVERRIDE ---
 declare module "next-auth" {
   interface Session {
     user: {
@@ -32,7 +31,7 @@ const handler = NextAuth({
           return { 
             id: credentials.email, 
             email: credentials.email, 
-            name: "Root Admin" 
+            name: credentials.email.split('@')[0] // 🎯 Dynamic name for initials
           };
         }
         return null;
@@ -53,6 +52,7 @@ const handler = NextAuth({
       if (user) {
         token.email = user.email;
         token.id = user.id;
+        token.name = user.name; // 🎯 Capture name here
       }
       return token;
     },
@@ -60,17 +60,22 @@ const handler = NextAuth({
       if (session.user) {
         session.user.email = token.email as string;
         session.user.id = token.id as string;
+        session.user.name = token.name as string; // 🎯 Pass name here
       }
       return session;
     },
-    async redirect({ baseUrl }) {
-      return baseUrl; 
+    // 🎯 FIX: The Loop Breaker
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      else if (new URL(url).origin === baseUrl) return url;
+      return baseUrl;
     },
   },
   secret: process.env.NEXTAUTH_SECRET,
   pages: {
     signIn: "/login",
   },
+  debug: true, // Keep this on so you can see errors in Vercel Logs
 });
 
 export { handler as GET, handler as POST };
