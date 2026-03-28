@@ -14,16 +14,13 @@ declare module "next-auth" {
 }
 
 const handler = NextAuth({
-  // 🎯 ADAPTER COMMENTED OUT: Keeps the build stable on Vercel
-  // adapter: FirestoreAdapter(db as any), 
-
+  adapter: FirestoreAdapter(db as any), 
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true, 
     }),
-
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -32,68 +29,48 @@ const handler = NextAuth({
       },
       async authorize(credentials) {
         if (credentials?.email) {
-          // 🎯 Mock login: Slices the email to provide your Navbar initials
           return { 
             id: credentials.email, 
             email: credentials.email, 
-            name: credentials.email.split('@')[0] 
+            name: "Root Admin" 
           };
         }
         return null;
       }
-    }),
+    })
   ],
-
   session: {
     strategy: "jwt",
   },
-
-  secret: process.env.NEXTAUTH_SECRET,
-
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
-        const email = user.email?.toLowerCase().trim();
-        console.log("LOGIN_ATTEMPT_FROM:", email); 
-
-        // 🎯 UNIVERSITY LOCK: Only allow @charusat.edu.in
-        if (email && email.endsWith("@charusat.edu.in")) {
-          return true;
-        }
-        return false; 
+        return !!user.email?.endsWith("@charusat.edu.in"); 
       }
-      return true; // Allows Credentials login to pass
+      return true;
     },
-    
     async jwt({ token, user }) {
       if (user) {
         token.email = user.email;
         token.id = user.id;
-        token.picture = user.image; 
-        token.name = user.name; // 🎯 PERSIST NAME: Important for the UI
       }
       return token;
     },
-
     async session({ session, token }) {
       if (session.user) {
         session.user.email = token.email as string;
         session.user.id = token.id as string;
-        session.user.image = token.picture as string;
-        session.user.name = token.name as string; 
       }
       return session;
     },
-
-    async redirect({ url, baseUrl }) {
-      // 🎯 Prevents the redirect loops on Vercel
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      else if (new URL(url).origin === baseUrl) return url;
-      return baseUrl;
+    async redirect({ baseUrl }) {
+      return baseUrl; 
     },
   },
-  
-  debug: true,
+  secret: process.env.NEXTAUTH_SECRET,
+  pages: {
+    signIn: "/login",
+  },
 });
 
 export { handler as GET, handler as POST };
