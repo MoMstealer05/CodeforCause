@@ -1,13 +1,14 @@
 "use client";
 import { useState, Suspense } from "react";
 import { signIn as nextAuthSignIn } from "next-auth/react";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase"; // 🎯 Ensure db is exported from your firebase config
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { collection, query, where, getDocs } from "firebase/firestore"; 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 function LoginContent() {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState(""); 
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(""); 
@@ -19,11 +20,28 @@ function LoginContent() {
     setErrorMsg(""); 
 
     try {
-      // 1. Verify with Firebase First
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      let emailToAuth = identifier.trim();
+
+      // 🎯 STEP 1: RESOLVE IDENTITY (Username/Full Name Support)
+      // If no '@', we assume the user entered their Full Name/displayName
+      if (!emailToAuth.includes("@")) {
+        const q = query(collection(db, "users"), where("displayName", "==", emailToAuth));
+        const snap = await getDocs(q);
+        
+        if (snap.empty) {
+          setErrorMsg("ACCESS_DENIED: IDENTITY_NOT_FOUND");
+          setLoading(false);
+          return;
+        }
+        // Extract the email associated with that specific name from Firestore
+        emailToAuth = snap.docs[0].data().email;
+      }
+
+      // 🎯 STEP 2: FIREBASE AUTHENTICATION
+      const userCredential = await signInWithEmailAndPassword(auth, emailToAuth, password);
       const firebaseUser = userCredential.user;
 
-      // 2. Sync with NextAuth immediately to create the session cookie
+      // 🎯 STEP 3: NEXT-AUTH SESSION SYNC
       const result = await nextAuthSignIn("credentials", {
         email: firebaseUser.email,
         password: password, 
@@ -36,13 +54,12 @@ function LoginContent() {
         return;
       }
 
-      // 3. SUCCESS: Hard refresh to root so ClientLayout picks up the new session
+      // 🎯 STEP 4: SUCCESS REDIRECT
       setTimeout(() => {
         window.location.href = "/"; 
       }, 150);
 
     } catch (error: any) {
-      // Handle Firebase Specific Errors
       if (
         error.code === "auth/invalid-credential" || 
         error.code === "auth/wrong-password" || 
@@ -78,7 +95,6 @@ function LoginContent() {
 
         <h1 style={{ fontSize: '24px', fontWeight: 900, color: '#fff', marginBottom: '8px' }}>Root Access</h1>
 
-        {/* ERROR DISPLAY */}
         {errorMsg && (
           <div style={{ 
             color: '#ff5555', 
@@ -98,17 +114,17 @@ function LoginContent() {
         
         <form onSubmit={handleEmailSignIn} style={{ textAlign: 'left', marginTop: errorMsg ? '15px' : '30px' }}>
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ color: '#fff', fontSize: '10px', display: 'block', marginBottom: '8px', opacity: 0.6 }}>EMAIL_IDENTITY</label>
+            <label style={{ color: '#fff', fontSize: '10px', display: 'block', marginBottom: '8px', opacity: 0.6 }}>IDENTITY (EMAIL_OR_FULL_NAME)</label>
             <input 
-              type="email" 
+              type="text" 
               required 
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => setIdentifier(e.target.value)}
               style={inputStyle} 
-              placeholder="user@charusat.edu.in" 
+              placeholder="user@email.com or Full Name" 
             />
           </div>
 
-          <div style={{ marginBottom: '30px' }}>
+          <div style={{ marginBottom: '10px' }}>
             <label style={{ color: '#fff', fontSize: '10px', display: 'block', marginBottom: '8px', opacity: 0.6 }}>ACCESS_KEY</label>
             <input 
               type="password" 
@@ -119,6 +135,11 @@ function LoginContent() {
             />
           </div>
 
+          {/* 🎯 Real-time requirements display */}
+          <p style={{ color: '#444', fontSize: '9px', marginBottom: '30px', paddingLeft: '5px' }}>
+            [ REQ: 8+ Chars, 1 Upper, 1 Number, 1 Special (!@#) ]
+          </p>
+
           <button type="submit" disabled={loading} style={primaryBtn}>
             {loading ? "VERIFYING_CREDENTIALS..." : "SIGN IN →"}
           </button>
@@ -126,7 +147,6 @@ function LoginContent() {
 
         <div style={dividerStyle}><span>OR AUTHORIZE VIA</span></div>
 
-        {/* GOOGLE SSO */}
         <button 
           onClick={() => nextAuthSignIn("google", { callbackUrl: "/" })}
           style={secondaryBtn}

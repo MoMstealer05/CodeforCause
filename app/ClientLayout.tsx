@@ -4,6 +4,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import Image from "next/image";
+// 🎯 IMPORT FIREBASE TO FETCH CUSTOM USER NAMES
+import { db } from "@/lib/firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [time, setTime] = useState("");
@@ -11,16 +14,42 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [menuOpen, setMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [shouldHideForModal, setShouldHideForModal] = useState(false);
+  
+  // 🎯 NEW STATE: To hold the name fetched from Firestore
+  const [customName, setCustomName] = useState<string | null>(null);
+
   const pathname = usePathname();
   const router = useRouter();
   const { data: session, status } = useSession();
+
+  // --- Fetch Custom Name from Firestore ---
+  useEffect(() => {
+    const fetchCustomName = async () => {
+      // If they are logged in, but DON'T have a Google Image, it's a Custom Login!
+      if (session?.user?.email && !session?.user?.image) {
+        try {
+          // Assuming you save registered users in a "users" collection
+          const q = query(collection(db, "users"), where("email", "==", session.user.email));
+          const snapshot = await getDocs(q);
+          
+          if (!snapshot.empty) {
+            const data = snapshot.docs[0].data();
+            // Pulls "displayName" (based on your screenshot), or falls back to FULL_NAME/name
+            setCustomName(data.displayName || data.FULL_NAME || data.name || null);
+          }
+        } catch (error) {
+          console.error("Failed to fetch operative identity from Firestore:", error);
+        }
+      }
+    };
+    
+    fetchCustomName();
+  }, [session]);
 
   // --- Unified Scroll & Modal Detection ---
   useEffect(() => {
     const handleScrollAndModal = () => {
       setIsScrolled(window.scrollY > 50);
-      
-      // Check if the body is locked (Details Pane is open)
       setShouldHideForModal(document.body.style.overflow === 'hidden');
 
       if (pathname !== '/') return;
@@ -51,7 +80,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   // --- Admin Reroute ---
   useEffect(() => {
     const ADMIN_EMAIL = "23ec017@charusat.edu.in";
-    // Skip reroute if we just logged out (?bye=1) — session may still linger briefly
     const isLoggingOut = typeof window !== "undefined" && window.location.search.includes("bye=1");
     if (isLoggingOut) return;
     if (status === "authenticated" && session?.user?.email === ADMIN_EMAIL) {
@@ -123,10 +151,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   const isAdminPage = pathname === "/admin" || pathname === "/login";
 
+  // 🎯 THE FIX: Smart Display Name
+  // 1. Try custom name from Firestore
+  // 2. Fallback to Google session name
+  // 3. Fallback to email prefix
+  const finalName = customName || session?.user?.name || session?.user?.email?.split("@")[0] || "U";
+  
+  // If it's a Google Image, use it. Otherwise, use ui-avatars to create initials from finalName!
+  const avatarSrc = session?.user?.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=0f111a&color=00d2ff&bold=true`;
+
   return (
     <div style={{ color: "#d1d5db", fontFamily: "monospace", minHeight: '100vh', backgroundColor: '#05060a' }}>
       
-      {/* 🚀 ONLY RENDER NAV IF NOT ON ADMIN/LOGIN PAGE */}
       {!isAdminPage && (
         <>
           <nav style={{
@@ -174,13 +210,20 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
               
               {status === "authenticated" && session?.user ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {/* 🚀 FIXED: Added referrerPolicy so Google doesn't block the image */}
-                  <img 
-                    src={session.user.image || `https://ui-avatars.com/api/?name=${session.user.email?.charAt(0).toUpperCase() || 'U'}&background=0f111a&color=00d2ff&bold=true`} 
-                    alt="User" 
-                    referrerPolicy="no-referrer"
-                    style={{ width: '26px', height: '26px', borderRadius: '50%', border: '2px solid #50fa7b', objectFit: 'cover' }}
-                  />
+                  
+                  <Link href="/dashboard" className="relative group flex items-center justify-center">
+                    <img 
+                      src={avatarSrc} 
+                      alt="User" 
+                      referrerPolicy="no-referrer"
+                      className="transition-all duration-300 group-hover:shadow-[0_0_10px_rgba(80,250,123,0.8)] group-hover:scale-110"
+                      style={{ width: '26px', height: '26px', borderRadius: '50%', border: '2px solid #50fa7b', objectFit: 'cover' }}
+                    />
+                    <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black border border-[#00d2ff]/30 text-[#00d2ff] text-[9px] uppercase tracking-widest px-2 py-1 rounded-md pointer-events-none whitespace-nowrap hidden sm:block">
+                      Command_Center
+                    </span>
+                  </Link>
+
                   <button onClick={handleLogout} style={{ border: '1px solid #ff5555', color: '#ff5555', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'monospace', backgroundColor: 'transparent' }}>
                     [ROOT_EXIT]
                   </button>
@@ -216,7 +259,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
               border: '1px solid rgba(0, 210, 255, 0.2)',
               maxHeight: menuOpen ? '350px' : '0px',
               opacity: menuOpen ? 1 : 0,
-              // 🚀 THE FIX: overflow hidden and dynamic pointer events stop the invisible shield!
               overflow: 'hidden',
               pointerEvents: menuOpen ? 'auto' : 'none',
               transition: 'all 0.4s ease-in-out',

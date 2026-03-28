@@ -20,8 +20,20 @@ function RegisterContent() {
     if (emailParam) setEmail(emailParam);
   }, [searchParams]);
 
+  // 🎯 1. REAL-TIME PASSWORD VALIDATION
+  const criteria = {
+    length: password.length >= 8,
+    upper: /[A-Z]/.test(password),
+    number: /\d/.test(password),
+    special: /[!@#$%^&*]/.test(password),
+  };
+  const isPasswordValid = Object.values(criteria).every(Boolean);
+  const hasStartedTyping = password.length > 0;
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPasswordValid) return; // Prevent submission of weak passwords
+
     setLoading(true);
 
     const isCharusat = email.endsWith("@charusat.ac.in") || email.endsWith("@charusat.edu.in");
@@ -55,7 +67,7 @@ function RegisterContent() {
       alert("INITIALIZATION_FAILED: " + error.message);
       setLoading(false);
     }
-  }; // <--- THIS BRACKET was likely missing or misplaced!
+  };
 
   return (
     <main style={containerStyle}>
@@ -96,12 +108,41 @@ function RegisterContent() {
               type="password" 
               placeholder="Set secure password..." 
               required 
+              value={password}
               onChange={(e) => setPassword(e.target.value)}
-              style={inputStyle} 
+              style={{
+                ...inputStyle, 
+                borderColor: (hasStartedTyping && !isPasswordValid) ? '#ff5555' : '#2a2e3f'
+              }} 
             />
           </div>
 
-          <button type="submit" disabled={loading} style={btnStyle}>
+          {/* 🚨 THE CYBER-ALERT WARNING BLOCK */}
+          {hasStartedTyping && !isPasswordValid && (
+            <div style={warningBlockStyle}>
+              <p style={{ color: '#ff5555', fontSize: '10px', fontWeight: 'bold', marginBottom: '8px', fontFamily: 'monospace' }}>
+                [!] SECURITY_PROTOCOL_VIOLATION:
+              </p>
+              <div style={criteriaGridStyle}>
+                <span style={{ color: criteria.length ? '#50fa7b' : '#ffaaaa', opacity: criteria.length ? 0.4 : 1 }}>{criteria.length ? '✔' : '•'} 8+ Chars</span>
+                <span style={{ color: criteria.upper ? '#50fa7b' : '#ffaaaa', opacity: criteria.upper ? 0.4 : 1 }}>{criteria.upper ? '✔' : '•'} Uppercase</span>
+                <span style={{ color: criteria.number ? '#50fa7b' : '#ffaaaa', opacity: criteria.number ? 0.4 : 1 }}>{criteria.number ? '✔' : '•'} Number</span>
+                <span style={{ color: criteria.special ? '#50fa7b' : '#ffaaaa', opacity: criteria.special ? 0.4 : 1 }}>{criteria.special ? '✔' : '•'} Special (!@#)</span>
+              </div>
+            </div>
+          )}
+
+          <button 
+            type="submit" 
+            disabled={loading || (hasStartedTyping && !isPasswordValid)} 
+            style={{
+              ...btnStyle,
+              backgroundColor: (hasStartedTyping && !isPasswordValid) ? '#1a1d2b' : '#50fa7b',
+              color: (hasStartedTyping && !isPasswordValid) ? '#444' : '#000',
+              cursor: (hasStartedTyping && !isPasswordValid) ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1
+            }}
+          >
             {loading ? "COMMITTING..." : "INITIALIZE_PROFILE →"}
           </button>
         </form>
@@ -125,10 +166,26 @@ const titleStyle = { color: '#fff', fontSize: '24px', fontWeight: 900, marginBot
 const formStyle = { display: 'flex', flexDirection: 'column' as const, gap: '20px' };
 const inputGroup = { display: 'flex', flexDirection: 'column' as const, gap: '8px' };
 const labelStyle = { color: '#fff', fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' };
-const inputStyle = { width: '100%', backgroundColor: '#000', border: '1px solid #2a2e3f', borderRadius: '12px', padding: '14px', color: '#fff', outline: 'none', fontFamily: 'monospace' };
-const btnStyle = { width: '100%', backgroundColor: '#50fa7b', color: '#000', border: 'none', borderRadius: '12px', padding: '16px', fontWeight: 900, cursor: 'pointer', marginTop: '10px' };
+const inputStyle = { width: '100%', backgroundColor: '#000', border: '1px solid #2a2e3f', borderRadius: '12px', padding: '14px', color: '#fff', outline: 'none', fontFamily: 'monospace', transition: 'all 0.3s' };
+const btnStyle = { width: '100%', backgroundColor: '#50fa7b', color: '#000', border: 'none', borderRadius: '12px', padding: '16px', fontWeight: 900, cursor: 'pointer', marginTop: '10px', transition: '0.3s' };
 const footerStyle = { marginTop: '24px', textAlign: 'center' as const };
 const linkStyle = { color: '#666', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold' };
+
+const warningBlockStyle = {
+  backgroundColor: 'rgba(255, 85, 85, 0.1)',
+  borderLeft: '4px solid #ff5555',
+  padding: '12px',
+  borderRadius: '8px',
+  marginTop: '-10px'
+};
+
+const criteriaGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: '6px',
+  fontSize: '9px',
+  fontFamily: 'monospace'
+};
 
 export default function RegisterPage() {
   return (

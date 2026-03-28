@@ -1,48 +1,210 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+"use client";
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { db } from "@/lib/firebase";
+// 🎯 Added getDocs to fetch the custom user name
+import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 
-export default async function DashboardPage() {
-  // Check the bouncer list
-  const session = await getServerSession(authOptions);
+const cyberStyles = `
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #00d2ff33; border-radius: 10px; }
+`;
 
-  // If they aren't logged in, instantly kick them to /login
-  if (!session) {
-    redirect("/login");
+export default function UserDashboard() {
+  const { data: session, status } = useSession();
+  const [activeTab, setActiveTab] = useState<"MISSIONS" | "CERTIFICATES">("MISSIONS");
+  
+  // Real Data States
+  const [myMissions, setMyMissions] = useState<any[]>([]);
+  const [myCertificates, setMyCertificates] = useState<any[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  
+  // 🎯 NEW STATE: To hold the name fetched from Firestore
+  const [customName, setCustomName] = useState<string | null>(null);
+
+  // Security & Redirect
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      redirect("/login");
+    }
+  }, [status]);
+
+  // 🎯 Fetch Custom Name from Firestore for Custom Logins
+  useEffect(() => {
+    const fetchCustomName = async () => {
+      // If they are logged in, but DON'T have a Google Image, it's a Custom Login!
+      if (session?.user?.email && !session?.user?.image) {
+        try {
+          const q = query(collection(db, "users"), where("email", "==", session.user.email));
+          const snapshot = await getDocs(q);
+          
+          if (!snapshot.empty) {
+            const data = snapshot.docs[0].data();
+            setCustomName(data.displayName || data.FULL_NAME || data.name || null);
+          }
+        } catch (error) {
+          console.error("Failed to fetch operative identity from Firestore:", error);
+        }
+      }
+    };
+    
+    fetchCustomName();
+  }, [session]);
+
+  // Fetch User's Missions and Certificates
+  useEffect(() => {
+    if (!session?.user?.email) return;
+
+    // 1. Fetch Registrations (Missions)
+    const qMissions = query(
+      collection(db, "registrations"), 
+      where("userEmail", "==", session.user.email)
+    );
+    
+    const unsubMissions = onSnapshot(qMissions, (snapshot) => {
+      setMyMissions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // 2. Fetch Certificates
+    const qCertificates = query(
+      collection(db, "certificates"), 
+      where("userEmail", "==", session.user.email)
+    );
+
+    const unsubCertificates = onSnapshot(qCertificates, (snapshot) => {
+      setMyCertificates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoadingData(false);
+    });
+
+    return () => {
+      unsubMissions();
+      unsubCertificates();
+    };
+  }, [session?.user?.email]);
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-[#05060a] flex items-center justify-center">
+        <div className="w-3 h-6 bg-[#00d2ff] animate-pulse"></div>
+      </div>
+    );
   }
 
+  if (!session?.user) return null;
+
+  // 🎯 THE FIX: Smart Display Name (Same as Navbar)
+  const finalName = customName || session.user.name || session.user.email?.split("@")[0] || "OPERATIVE";
+  const avatarName = /\d/.test(finalName) ? "OP" : finalName;
+  const avatarSrc = session.user.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0f111a&color=00d2ff&bold=true`;
+
   return (
-    <main className="flex min-h-[calc(100vh-80px)] flex-col items-center justify-center p-8 text-center relative overflow-hidden">
+    <div className="min-h-screen bg-[#05060a] pt-20 md:pt-24 px-4 md:px-8 font-mono text-white selection:bg-[#50fa7b] selection:text-black pb-12">
+      <style>{cyberStyles}</style>
       
-      {/* Background Cyber Glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] md:w-[600px] h-[400px] md:h-[600px] bg-causeCyan/10 blur-[100px] rounded-full pointer-events-none -z-10"></div>
-
-      <div className="bg-brandCard/50 backdrop-blur-xl border border-causeCyan/20 p-10 rounded-3xl shadow-[0_0_40px_rgba(0,210,255,0.1)] max-w-2xl w-full z-10">
+      <div className="max-w-5xl mx-auto">
         
-        <div className="w-20 h-20 bg-causeCyan/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-causeCyan/50 shadow-[0_0_15px_rgba(0,210,255,0.4)]">
-          {/* Checkmark SVG */}
-          <svg className="w-10 h-10 text-causeCyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
+        {/* PROFILE HEADER */}
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 bg-[#0B111A] border border-white/5 rounded-3xl p-6 md:p-8 mb-8 relative overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-[#00d2ff]/5 rounded-full blur-[80px] -z-10 pointer-events-none" />
+          
+          <img src={avatarSrc} alt="Profile" className="w-20 h-20 md:w-24 md:h-24 rounded-full border-2 border-[#00d2ff] shadow-[0_0_20px_rgba(0,210,255,0.2)]" />
+          
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-1">
+              {/* 🎯 THE FIX: Apply the finalName here! */}
+              <h1 className="text-2xl md:text-3xl font-black uppercase tracking-wider truncate">{finalName}</h1>
+              <span className="bg-[#50fa7b]/10 text-[#50fa7b] border border-[#50fa7b]/20 px-3 py-1 rounded-full text-[10px] tracking-widest uppercase font-bold shrink-0">Authorized</span>
+            </div>
+            <p className="text-gray-500 text-xs md:text-sm tracking-widest truncate">{session.user.email}</p>
+          </div>
 
-        <h1 className="text-4xl font-extrabold text-brandText mb-2">Welcome, {session.user?.name}</h1>
-        <p className="text-causeCyan font-mono mb-8">{session.user?.email}</p>
-        
-        <p className="text-xl text-gray-400 mb-8">
-          You successfully bypassed the bouncer using your official university ID. Your internal club tools will live here.
-        </p>
-
-        <div className="flex flex-col sm:flex-row justify-center gap-4">
-          <Link href="/" className="px-6 py-3 bg-brandBase text-gray-300 border border-brandCard hover:border-codeBlue hover:text-codeBlue rounded-xl font-semibold transition-all duration-300">
-            Return to Home
-          </Link>
-          <Link href="/api/auth/signout" className="px-6 py-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 rounded-xl font-bold transition-all duration-300">
-            Log Out
+          <Link href="/#Home" className="hidden md:flex items-center gap-2 text-gray-500 hover:text-[#00d2ff] transition-colors text-xs uppercase tracking-widest">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            Return_To_Root
           </Link>
         </div>
+
+        {/* NAVIGATION TABS */}
+        <div className="flex gap-4 mb-8 border-b border-white/10 pb-px overflow-x-auto custom-scrollbar">
+          <button 
+            onClick={() => setActiveTab("MISSIONS")}
+            className={`pb-4 px-2 text-xs md:text-sm uppercase tracking-widest font-bold transition-all border-b-2 whitespace-nowrap ${activeTab === 'MISSIONS' ? 'border-[#00d2ff] text-[#00d2ff]' : 'border-transparent text-gray-600 hover:text-gray-300'}`}
+          >
+            My_Missions ({myMissions.length})
+          </button>
+          <button 
+            onClick={() => setActiveTab("CERTIFICATES")}
+            className={`pb-4 px-2 text-xs md:text-sm uppercase tracking-widest font-bold transition-all border-b-2 whitespace-nowrap ${activeTab === 'CERTIFICATES' ? 'border-[#50fa7b] text-[#50fa7b]' : 'border-transparent text-gray-600 hover:text-gray-300'}`}
+          >
+            Clearance_Badges ({myCertificates.length})
+          </button>
+        </div>
+
+        {/* LOADING STATE */}
+        {loadingData ? (
+          <div className="text-[#00d2ff] font-mono animate-pulse tracking-widest text-center py-12">
+            [ Fetching_Personal_Records... ]
+          </div>
+        ) : (
+          <>
+            {/* TAB CONTENT: MISSIONS */}
+            {activeTab === "MISSIONS" && (
+              <div className="space-y-4 animate-fadeUp">
+                {myMissions.length > 0 ? myMissions.map((mission) => (
+                  <div key={mission.id} className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#0a0c10] border border-white/5 p-5 md:p-6 rounded-2xl hover:border-[#00d2ff]/30 transition-all group">
+                    <div>
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-sm md:text-base font-bold uppercase tracking-wider text-white group-hover:text-[#00d2ff] transition-colors">{mission.eventTitle}</h3>
+                        <span className="text-[9px] px-2 py-0.5 rounded-full uppercase font-bold tracking-widest bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/20">
+                          Registered
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 uppercase tracking-widest">Date: {mission.eventDate} // Venue: {mission.eventVenue}</p>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="text-center py-20 border border-dashed border-white/10 rounded-3xl bg-white/[0.02]">
+                    <p className="text-gray-500 text-xs uppercase tracking-widest mb-4">No Active Missions Found.</p>
+                    <Link href="/events" className="text-[#00d2ff] border border-[#00d2ff]/30 px-6 py-3 rounded-xl text-xs uppercase tracking-widest hover:bg-[#00d2ff] hover:text-black transition-all">
+                      Browse_Network_Events
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB CONTENT: CERTIFICATES */}
+            {activeTab === "CERTIFICATES" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeUp">
+                {myCertificates.length > 0 ? myCertificates.map((cert) => (
+                  <div key={cert.id} className="bg-[#0a0c10] border border-white/5 p-6 rounded-3xl relative overflow-hidden group hover:border-[#50fa7b]/30 transition-all">
+                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
+                      <svg className="w-24 h-24 text-[#50fa7b]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                    </div>
+                    
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-1 group-hover:text-[#50fa7b] transition-colors pr-12 relative z-10">{cert.eventTitle}</h3>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-6 relative z-10">Issued: {cert.issueDate}</p>
+                    
+                    <div className="flex items-center justify-between relative z-10">
+                      <span className="text-[8px] text-gray-600 font-mono tracking-widest truncate max-w-[150px]">HASH: {cert.certHash || cert.id}</span>
+                      <button className="text-[10px] uppercase font-bold tracking-widest text-black bg-[#50fa7b] px-4 py-2 rounded-lg hover:shadow-[0_0_15px_rgba(80,250,123,0.4)] transition-all">
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="col-span-1 md:col-span-2 text-center py-20 border border-dashed border-white/10 rounded-3xl bg-white/[0.02]">
+                    <p className="text-gray-500 text-xs uppercase tracking-widest">No Clearance Badges Issued Yet.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
       </div>
-    </main>
+    </div>
   );
 }
