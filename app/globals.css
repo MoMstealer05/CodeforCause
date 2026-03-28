@@ -1,4 +1,18 @@
 @import "tailwindcss";
+/* Mobile-first base */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+}
+
+/* Fix common overflow issues on mobile */
+body {
+  overflow-x: hidden;
+  width: 100%;
+}
 html {
   scroll-behavior: smooth;
 }
@@ -86,16 +100,4 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background-color: #50fa7b; /* Turns Kali Green when you hover the scrollbar! */
-}
-/* Force the calendar and clock icons to be white/visible in dark mode */
-input::-webkit-calendar-picker-indicator {
-    filter: invert(1); /* This turns black icons white */
-    cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.2s;
-}
-
-input::-webkit-calendar-picker-indicator:hover {
-    opacity: 1;
-    filter: invert(1) sepia(1) saturate(5) hue-rotate(175deg); /* Optional: turns it Cyan on hover */
 }
