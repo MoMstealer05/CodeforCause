@@ -14,7 +14,7 @@ declare module "next-auth" {
 }
 
 const handler = NextAuth({
-  // 🎯 ADAPTER COMMENTED OUT: Prevents the Admin SDK crash on Vercel
+  // 🎯 ADAPTER COMMENTED OUT: Keeps the build stable on Vercel
   // adapter: FirestoreAdapter(db as any), 
 
   providers: [
@@ -32,7 +32,7 @@ const handler = NextAuth({
       },
       async authorize(credentials) {
         if (credentials?.email) {
-          // 🎯 Mock login: Uses the email prefix for the UI initials
+          // 🎯 Mock login: Slices the email to provide your Navbar initials
           return { 
             id: credentials.email, 
             email: credentials.email, 
@@ -54,15 +54,15 @@ const handler = NextAuth({
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         const email = user.email?.toLowerCase().trim();
-        console.log("LOGIN_ATTEMPT_FROM:", email); // 🕵️‍♂️ Visible in Vercel Logs
+        console.log("LOGIN_ATTEMPT_FROM:", email); 
 
-        // 🎯 SECURITY: Only allow @charusat.edu.in emails
+        // 🎯 UNIVERSITY LOCK: Only allow @charusat.edu.in
         if (email && email.endsWith("@charusat.edu.in")) {
           return true;
         }
-        return false; // Rejects anyone else
+        return false; 
       }
-      return true; // Allows Credentials login
+      return true; // Allows Credentials login to pass
     },
     
     async jwt({ token, user }) {
@@ -70,7 +70,7 @@ const handler = NextAuth({
         token.email = user.email;
         token.id = user.id;
         token.picture = user.image; 
-        token.name = user.name; // 🎯 Needed for dynamic initials in ClientLayout
+        token.name = user.name; // 🎯 PERSIST NAME: Important for the UI
       }
       return token;
     },
@@ -86,14 +86,14 @@ const handler = NextAuth({
     },
 
     async redirect({ url, baseUrl }) {
-      // 🎯 Fixes the "Too many redirects" loop on login/logout
+      // 🎯 Prevents the redirect loops on Vercel
       if (url.startsWith("/")) return `${baseUrl}${url}`;
       else if (new URL(url).origin === baseUrl) return url;
       return baseUrl;
     },
   },
   
-  debug: true, // Logs detailed info to Vercel console
+  debug: true,
 });
 
 export { handler as GET, handler as POST };
