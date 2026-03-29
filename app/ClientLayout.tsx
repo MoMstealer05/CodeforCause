@@ -16,6 +16,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [isScrolled, setIsScrolled] = useState(false);
   const [shouldHideForModal, setShouldHideForModal] = useState(false);
   const [customName, setCustomName] = useState<string | null>(null);
+  const [customPhoto, setCustomPhoto] = useState<string | null>(null); // ✅ NEW
 
   // ── Profile dropdown state
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -38,23 +39,33 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Fetch custom name from Firestore
+  // ── Fetch custom name AND photo from Firestore
+  // ✅ FIX: Removed the `!session?.user?.image` guard.
+  //    We always check Firestore for custom-login users.
+  //    Google-login users already have session.user.image, so
+  //    customPhoto stays null and the Google URL is used directly.
   useEffect(() => {
-    const fetchCustomName = async () => {
-      if (session?.user?.email && !session?.user?.image) {
-        try {
-          const q = query(collection(db, "users"), where("email", "==", session.user.email));
-          const snapshot = await getDocs(q);
-          if (!snapshot.empty) {
-            const data = snapshot.docs[0].data();
-            setCustomName(data.displayName || data.FULL_NAME || data.name || null);
-          }
-        } catch (error) {
-          console.error("Failed to fetch operative identity:", error);
+    const fetchUserData = async () => {
+      if (!session?.user?.email) return;
+
+      // Only query Firestore for custom (non-Google) logins.
+      // Google OAuth always populates session.user.image itself.
+      if (session?.user?.image) return;
+
+      try {
+        const q = query(collection(db, "users"), where("email", "==", session.user.email));
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          const data = snapshot.docs[0].data();
+          setCustomName(data.displayName || data.FULL_NAME || data.name || null);
+          // ✅ Pick up whichever field your sync button writes the Google photo URL to
+          setCustomPhoto(data.photoURL || data.profilePhoto || data.image || null);
         }
+      } catch (error) {
+        console.error("Failed to fetch operative identity:", error);
       }
     };
-    fetchCustomName();
+    fetchUserData();
   }, [session]);
 
   // ── Scroll & modal detection
@@ -136,7 +147,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   const isAdminPage = pathname === "/admin" || pathname === "/login";
   const finalName = customName || session?.user?.name || session?.user?.email?.split("@")[0] || "U";
-  const avatarSrc = session?.user?.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=0f111a&color=00d2ff&bold=true`;
+
+  // ✅ Priority: Google session image → Firestore synced photo → generated initials avatar
+  const avatarSrc =
+    session?.user?.image ||
+    customPhoto ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=0f111a&color=00d2ff&bold=true`;
 
   return (
     <div style={{ color: "#d1d5db", fontFamily: "monospace", minHeight: "100vh", backgroundColor: "#05060a" }}>
@@ -196,22 +212,21 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                       style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
                     >
                       <img
-  src={session?.user?.image || avatarSrc} // 🚀 Prioritize Google image first
-  alt="Profile"
-  referrerPolicy="no-referrer"
-  onError={(e) => {
-    // 🚀 If Google blocks the image, instantly swap to the fallback
-    const emailPrefix = session?.user?.email?.substring(0, 2).toUpperCase() || "OP";
-    e.currentTarget.src = `https://ui-avatars.com/api/?name=${emailPrefix}&background=0B111A&color=50fa7b&bold=true`;
-  }}
-  style={{
-    width: "28px", height: "28px", borderRadius: "50%",
-    border: dropdownOpen ? "2px solid #00d2ff" : "2px solid #50fa7b",
-    objectFit: "cover",
-    transition: "border-color 0.2s, box-shadow 0.2s",
-    boxShadow: dropdownOpen ? "0 0 10px rgba(0,210,255,0.6)" : "none",
-  }}
-/>
+                        src={avatarSrc} // ✅ Uses the resolved priority chain above
+                        alt="Profile"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          // Last-resort fallback if even the Firestore URL fails
+                          e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(finalName)}&background=0B111A&color=50fa7b&bold=true`;
+                        }}
+                        style={{
+                          width: "28px", height: "28px", borderRadius: "50%",
+                          border: dropdownOpen ? "2px solid #00d2ff" : "2px solid #50fa7b",
+                          objectFit: "cover",
+                          transition: "border-color 0.2s, box-shadow 0.2s",
+                          boxShadow: dropdownOpen ? "0 0 10px rgba(0,210,255,0.6)" : "none",
+                        }}
+                      />
                     </button>
 
                     {/* Dropdown panel */}
@@ -238,11 +253,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                         </div>
 
                         {/* Dashboard */}
-                        <Link
-                          href="/dashboard"
-                          onClick={() => setDropdownOpen(false)}
-                          style={{ textDecoration: "none" }}
-                        >
+                        <Link href="/dashboard" onClick={() => setDropdownOpen(false)} style={{ textDecoration: "none" }}>
                           <div style={dropdownItemStyle("#00d2ff")}>
                             <span style={{ fontSize: "14px" }}>⌘</span>
                             <span>Dashboard</span>
@@ -251,11 +262,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
                         {/* Admin Panel — only for admin */}
                         {isAdmin && (
-                          <Link
-                            href="/admin"
-                            onClick={() => setDropdownOpen(false)}
-                            style={{ textDecoration: "none" }}
-                          >
+                          <Link href="/admin" onClick={() => setDropdownOpen(false)} style={{ textDecoration: "none" }}>
                             <div style={dropdownItemStyle("#ffb86c")}>
                               <span style={{ fontSize: "14px" }}>⚡</span>
                               <span>Admin Panel</span>
@@ -263,10 +270,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                           </Link>
                         )}
 
-                        {/* Divider */}
                         <div style={{ height: "1px", backgroundColor: "rgba(255,255,255,0.06)", margin: "4px 0" }} />
 
-                        {/* Logout */}
                         <button
                           onClick={() => { setDropdownOpen(false); handleLogout(); }}
                           style={{ width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
@@ -328,7 +333,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 </button>
               ))}
 
-              {/* Mobile: auth links */}
               {status === "authenticated" && (
                 <>
                   <div style={{ height: "1px", backgroundColor: "rgba(255,255,255,0.06)", margin: "4px 0" }} />
