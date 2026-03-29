@@ -26,20 +26,17 @@ export default function EventRegistrationPage() {
   const [eventData, setEventData] = useState<any>(null);
   const [formSchema, setFormSchema] = useState<any>(null);
   
-  // Only storing Custom Fields from Admin Builder now!
   const [customAnswers, setCustomAnswers] = useState<Record<string, any>>({});
 
   useEffect(() => {
     const fetchMissionData = async () => {
       if (!eventId) return;
       try {
-        // 1. Fetch Event Details
         const eventDoc = await getDoc(doc(db, "events", eventId));
         if (eventDoc.exists()) {
           setEventData(eventDoc.data());
         }
 
-        // 2. Fetch Form Schema
         import("firebase/firestore").then(async ({ query, where, getDocs }) => {
           const q = query(collection(db, "forms"), where("eventId", "==", eventId));
           const querySnapshot = await getDocs(q);
@@ -80,14 +77,27 @@ export default function EventRegistrationPage() {
     e.preventDefault();
     setSubmitting(true);
     try {
+      // 🚀 SMART NAME EXTRACTOR: Finds the name field in your custom form
+      let extractedName = "";
+      if (formSchema?.questions) {
+        const nameQuestion = formSchema.questions.find((q: any) => {
+          const label = q.label.toLowerCase().replace(/[\s_\-]/g, "");
+          return ["name", "fullname", "yourname", "participant", "studentname"].some(kw => label.includes(kw));
+        });
+        
+        if (nameQuestion && customAnswers[nameQuestion.id]) {
+          extractedName = customAnswers[nameQuestion.id].trim();
+        }
+      }
+
       const payload = {
         eventId,
         eventTitle: eventData.title,
         formId: formSchema?.id || "N/A",
-        // We link the registration to the authenticated Google user so they can see it in their dashboard later
         userEmail: session?.user?.email?.toLowerCase() || "guest@cfc.com", 
-        userName: session?.user?.name || "Participant",
-        responses: customAnswers, // 🚀 All answers are now stored purely in this object
+        // 🚀 PRIORITIZE form input over Google Profile Name
+        userName: extractedName || session?.user?.name || "Participant",
+        responses: customAnswers,
         attendanceStatus: "REGISTERED",
         certificateIssued: false,
         submittedAt: new Date().toISOString(),
@@ -140,7 +150,6 @@ export default function EventRegistrationPage() {
 
         <form onSubmit={submitRegistration} className="bg-[#0B111A] border border-white/5 rounded-3xl p-6 md:p-10 shadow-2xl">
           
-          {/* CUSTOM FORM QUESTIONS ONLY */}
           {formSchema && formSchema.questions?.length > 0 ? (
             <div className="mb-10 p-6 border border-[#bd93f9]/20 bg-[#bd93f9]/5 rounded-2xl space-y-5">
               <h3 className="text-[10px] font-black text-[#bd93f9] uppercase tracking-widest mb-4 border-b border-[#bd93f9]/20 pb-3">Mission Questionnaire</h3>
@@ -198,7 +207,6 @@ export default function EventRegistrationPage() {
             </div>
           )}
 
-          {/* SUBMIT BUTTON */}
           <div className="mt-6 pt-8 border-t border-white/10">
             <button type="submit" disabled={submitting} className="w-full bg-[#00d2ff] text-black font-black p-5 rounded-2xl uppercase tracking-[0.2em] transition-all hover:scale-[1.01] active:scale-95 disabled:opacity-50 text-sm shadow-[0_0_30px_rgba(0,210,255,0.2)]">
               {submitting ? "TRANSMITTING..." : "CONFIRM REGISTRATION →"}
