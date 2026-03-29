@@ -170,13 +170,13 @@ export default function UserDashboard() {
             onClick={() => setActiveTab("MISSIONS")}
             className={`pb-4 px-2 text-xs md:text-sm uppercase tracking-widest font-bold transition-all border-b-2 whitespace-nowrap ${activeTab === 'MISSIONS' ? 'border-[#00d2ff] text-[#00d2ff]' : 'border-transparent text-gray-600 hover:text-gray-300'}`}
           >
-            My_Missions ({myMissions.length})
+            My Events ({myMissions.length})
           </button>
           <button 
             onClick={() => setActiveTab("CERTIFICATES")}
             className={`pb-4 px-2 text-xs md:text-sm uppercase tracking-widest font-bold transition-all border-b-2 whitespace-nowrap ${activeTab === 'CERTIFICATES' ? 'border-[#50fa7b] text-[#50fa7b]' : 'border-transparent text-gray-600 hover:text-gray-300'}`}
           >
-            Clearance_Badges ({myCertificates.length})
+            Certificates ({myCertificates.length})
           </button>
         </div>
 
