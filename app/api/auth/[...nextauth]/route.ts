@@ -19,6 +19,14 @@ const handler = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true, 
+      // 🚀 THE OAUTH 400 FIX: Forces clean auth flow for Brave/Mobile
+      authorization: {
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code"
+        }
+      }
     }),
     CredentialsProvider({
       name: "Credentials",
@@ -53,28 +61,42 @@ const handler = NextAuth({
       }
     })
   ],
+  // 🚀 THE VERCEL FIX: Tells NextAuth to trust the Vercel domain headers on Mobile
+  trustHost: true,
   session: {
     strategy: "jwt",
   },
-  callbacks: {
-  async signIn({ user, account }) {
-    if (account?.provider === "google") {
-      try {
-        // This is the "Handshake" - it runs every time someone clicks 'Continue with Google'
-        const userRef = doc(db, "users", user.id); 
-        await setDoc(userRef, {
-          displayName: user.name,
-          email: user.email?.toLowerCase(),
-          photoURL: user.image, // 📸 Syncs Google photo to Firestore
-          role: "student",
-          lastLogin: new Date().toISOString()
-        }, { merge: true });
-      } catch (error) {
-        console.error("Error syncing Google User to Firestore:", error);
-      }
-    }
-    return true;
+  // 🚀 THE STRICT BROWSER FIX: Configures cookies to survive cross-site Brave redirects
+  cookies: {
+    pkceCodeVerifier: {
+      name: "next-auth.pkce.code_verifier",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
   },
+  callbacks: {
+    async signIn({ user, account }) {
+      if (account?.provider === "google") {
+        try {
+          // This is the "Handshake" - it runs every time someone clicks 'Continue with Google'
+          const userRef = doc(db, "users", user.id); 
+          await setDoc(userRef, {
+            displayName: user.name,
+            email: user.email?.toLowerCase(),
+            photoURL: user.image, // 📸 Syncs Google photo to Firestore
+            role: "student",
+            lastLogin: new Date().toISOString()
+          }, { merge: true });
+        } catch (error) {
+          console.error("Error syncing Google User to Firestore:", error);
+        }
+      }
+      return true;
+    },
     async jwt({ token, user, profile, account }) {
       // Safely grab the Google token ONLY if they used Google to log in
       if (account?.provider === "google") {
@@ -100,6 +122,10 @@ const handler = NextAuth({
       return session;
     },
     async redirect({ url, baseUrl }) {
+      // 🚀 THE ERROR LOOP FIX: If Google throws a 400, safely bounce back to the homepage
+      if (url.includes("error=OAuthCallback") || url.includes("error=AccessDenied")) {
+        return baseUrl;
+      }
       if (url.startsWith("/")) return `${baseUrl}${url}`;
       else if (new URL(url).origin === baseUrl) return url;
       return baseUrl;
