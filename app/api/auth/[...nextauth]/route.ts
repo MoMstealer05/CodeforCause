@@ -19,8 +19,7 @@ const handler = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true, 
-      // 🚀 THE FIX: Forces Google to ignore the broken mobile cache 
-      // and issue a fresh session token every time.
+      // 🚀 FIX 1: The Login Loop Breaker (Forces fresh Google session)
       authorization: {
         params: {
           prompt: "login",
@@ -36,18 +35,28 @@ const handler = NextAuth({
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
+        // FIX: Catch the email whether your form calls it 'email' or 'username'
         const email = credentials?.email || (credentials as any)?.username;
         
-        // Master Admin Bypass
+        // 1. Specific Admin Bypass (Change "admin123" to whatever password you want!)
         if (email === "23ec017@charusat.edu.in" && credentials?.password === "admin123") {
-          return { id: email, email: email, name: "Master Admin" };
+          return { 
+            id: email, 
+            email: email, 
+            name: "Master Admin" 
+          };
         }
         
-        // Fallback Access
+        // 2. Fallback: If you still want ANY email to work without a password check
         if (email) {
-          return { id: email, email: email, name: email.split('@')[0] };
+          return {
+            id: email,
+            email: email,
+            name: email.split('@')[0]
+          };
         }
         
+        // If it gets here, the form sent empty fields, triggering the "wrong" error
         return null; 
       }
     })
@@ -58,13 +67,24 @@ const handler = NextAuth({
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
+        const email = user.email?.toLowerCase() || "";
+
+        // 🚀 FIX 2: The University Gatekeeper (.edu or .ac)
+        const isUniEmail = /\.edu(\.[a-z]{2})?$|\.ac\.[a-z]{2}$/.test(email);
+        const isMasterAdmin = email === "23ec017@charusat.edu.in"; 
+
+        if (!isUniEmail && !isMasterAdmin) {
+          // Bounces non-students back to login with an error flag in the URL
+          return "/login?error=AccessDenied"; 
+        }
+
         try {
-          // Syncs Google User to your Firestore Database
+          // This is the "Handshake" - it runs every time someone clicks 'Continue with Google'
           const userRef = doc(db, "users", user.id); 
           await setDoc(userRef, {
             displayName: user.name,
-            email: user.email?.toLowerCase(),
-            photoURL: user.image,
+            email: email,
+            photoURL: user.image, // 📸 Syncs Google photo to Firestore
             role: "student",
             lastLogin: new Date().toISOString()
           }, { merge: true });
@@ -75,6 +95,7 @@ const handler = NextAuth({
       return true;
     },
     async jwt({ token, user, profile, account }) {
+      // Safely grab the Google token ONLY if they used Google to log in
       if (account?.provider === "google") {
         token.idToken = account.id_token; 
       }
@@ -92,12 +113,12 @@ const handler = NextAuth({
         session.user.id = token.id as string;
         session.user.name = token.name as string;
         session.user.image = token.picture as string | undefined;
+        // Pass the Google token to the frontend (will be undefined for manual login)
         session.firebaseToken = token.idToken as string | undefined; 
       }
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // Let NextAuth handle its own native routing
       if (url.startsWith("/")) return `${baseUrl}${url}`;
       else if (new URL(url).origin === baseUrl) return url;
       return baseUrl;
