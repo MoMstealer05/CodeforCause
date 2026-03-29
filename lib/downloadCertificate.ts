@@ -1,5 +1,8 @@
 // lib/downloadCertificate.ts
 import { jsPDF } from "jspdf";
+import QRCode from "qrcode";
+
+const BASE_URL = "https://cfc-charusat.vercel.app";
 
 export async function downloadCertificate(cert: {
   userName: string;
@@ -15,10 +18,10 @@ export async function downloadCertificate(cert: {
 }) {
   const fontFamily = cert.fontFamily?.trim() || "monospace";
 
-  // 1. Load font properly into canvas context
+  // 1. Load font
   await loadFontForCanvas(fontFamily, cert.fontSize);
 
-  // 2. Load the template image
+  // 2. Load template image
   const img = await loadImage(cert.templateUrl);
 
   const canvas = document.createElement("canvas");
@@ -44,16 +47,19 @@ export async function downloadCertificate(cert: {
   ctx.fillText(cert.userName, x, y);
   ctx.restore();
 
-  // 4. Cert hash stamp
+  // 4. Cert hash text stamp (bottom-left)
   ctx.save();
   ctx.font = `normal 11px monospace`;
   ctx.fillStyle = "rgba(120,120,120,0.6)";
-  ctx.textAlign = "right";
+  ctx.textAlign = "left";
   ctx.textBaseline = "bottom";
-  ctx.fillText(`CERT#${cert.certHash} · ${cert.issueDate}`, canvas.width - 20, canvas.height - 14);
+  ctx.fillText(`CERT#${cert.certHash} · ${cert.issueDate}`, 20, canvas.height - 14);
   ctx.restore();
 
-  // 5. Export as PDF
+  // 5. Generate & stamp QR code (bottom-right corner)
+  await stampQRCode(ctx, canvas.width, canvas.height, cert.certHash);
+
+  // 6. Export as PDF
   const imgData = canvas.toDataURL("image/jpeg", 1.0);
   const orientation = canvas.width > canvas.height ? "landscape" : "portrait";
 
@@ -70,43 +76,110 @@ export async function downloadCertificate(cert: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THE ACTUAL FIX:
-// Fetch Google Fonts CSS → parse woff2 URL → load via FontFace API →
-// document.fonts.add(). This is the ONLY method Canvas actually respects.
+// QR Code stamper — bottom-right corner, subtle with white bg padding
+// ─────────────────────────────────────────────────────────────────────────────
+async function stampQRCode(
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  certHash: string
+): Promise<void> {
+  const verifyUrl = `${BASE_URL}/verify/${certHash}`;
+
+  // QR size: ~8% of the shorter dimension, min 80px
+  const qrSize = Math.max(80, Math.round(Math.min(canvasWidth, canvasHeight) * 0.08));
+  const margin = 18;        // gap from edges
+  const padding = 6;        // white border around QR
+
+  // Generate QR as a data URL
+  const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+    width: qrSize,
+    margin: 1,
+    color: {
+      dark: "#1a1a2e",   // deep navy dots
+      light: "#ffffff",  // white background
+    },
+    errorCorrectionLevel: "H",
+  });
+
+  const qrImg = await loadImage(qrDataUrl);
+
+  // Position: bottom-right
+  const x = canvasWidth - qrSize - margin - padding * 2;
+  const y = canvasHeight - qrSize - margin - padding * 2;
+  const totalSize = qrSize + padding * 2;
+
+  // White rounded background box
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.25)";
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = "#ffffff";
+  roundRect(ctx, x, y, totalSize, totalSize, 6);
+  ctx.fill();
+  ctx.restore();
+
+  // Draw QR image inside the white box
+  ctx.drawImage(qrImg, x + padding, y + padding, qrSize, qrSize);
+
+  // Tiny "VERIFY" label below the QR
+  ctx.save();
+  ctx.font = `bold ${Math.max(8, Math.round(qrSize * 0.12))}px monospace`;
+  ctx.fillStyle = "rgba(100,100,120,0.7)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("SCAN TO VERIFY", x + totalSize / 2, y + totalSize + 4);
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: rounded rect (for QR background box)
+// ─────────────────────────────────────────────────────────────────────────────
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  width: number, height: number,
+  radius: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Font loader — FontFace API (only method Canvas respects)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadFontForCanvas(fontFamily: string, fontSize: number): Promise<void> {
   const genericFonts = ["monospace", "sans-serif", "serif", "cursive", "fantasy"];
   if (genericFonts.includes(fontFamily.toLowerCase())) return;
 
   const fontSpec = `normal ${fontSize}px "${fontFamily}"`;
-  if (document.fonts.check(fontSpec)) return; // already loaded
+  if (document.fonts.check(fontSpec)) return;
 
   try {
-    // Request CSS from Google Fonts — browser sends correct UA so we get woff2
     const apiUrl = `https://fonts.googleapis.com/css2?family=${fontFamily.replace(/\s+/g, "+")}&display=swap`;
     const response = await fetch(apiUrl);
     const css = await response.text();
-
-    // Extract ALL font file URLs from @font-face blocks
     const urlMatches = [...css.matchAll(/url\((['"]?)([^)'"]+\.(?:woff2?|ttf|otf))\1\)/gi)];
-
     if (urlMatches.length === 0) throw new Error("No font URLs in CSS");
 
     const fontUrl = urlMatches[0][2];
-
-    // Load font binary and register with FontFace API
-    const face = new FontFace(fontFamily, `url(${fontUrl})`, {
-      style: "normal",
-      weight: "400",
-    });
-
+    const face = new FontFace(fontFamily, `url(${fontUrl})`, { style: "normal", weight: "400" });
     const loaded = await face.load();
     document.fonts.add(loaded);
     await document.fonts.load(fontSpec);
-
   } catch (err) {
-    console.warn(`[CertFont] Primary method failed for "${fontFamily}":`, err);
-    await loadFontViaArrayBuffer(fontFamily, fontSize);
+    console.warn(`[CertFont] Failed for "${fontFamily}":`, err);
+    await injectLinkFallback(fontFamily, fontSize);
   }
 
   // Canvas GPU warm-up
@@ -117,43 +190,9 @@ async function loadFontForCanvas(fontFamily: string, fontSize: number): Promise<
     tmpCtx.fillStyle = "rgba(0,0,0,0)";
     tmpCtx.fillText("warmup", 0, fontSize);
   }
-
   await delay(150);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FALLBACK: fetch font as ArrayBuffer directly
-// ─────────────────────────────────────────────────────────────────────────────
-async function loadFontViaArrayBuffer(fontFamily: string, fontSize: number): Promise<void> {
-  // Try common gstatic URL patterns
-  const slug = fontFamily.replace(/\s+/g, "").toLowerCase();
-  const urls = [
-    `https://fonts.gstatic.com/s/${slug}/v1/${fontFamily.replace(/\s+/g, "")}-Regular.ttf`,
-    `https://fonts.gstatic.com/s/${slug}/v2/${fontFamily.replace(/\s+/g, "")}-Regular.ttf`,
-  ];
-
-  for (const url of urls) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const buffer = await res.arrayBuffer();
-      const face = new FontFace(fontFamily, buffer, { style: "normal", weight: "400" });
-      const loaded = await face.load();
-      document.fonts.add(loaded);
-      await document.fonts.load(`normal ${fontSize}px "${fontFamily}"`);
-      return;
-    } catch {
-      continue;
-    }
-  }
-
-  // Absolute last resort: CSS link tag
-  await injectLinkFallback(fontFamily, fontSize);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LAST RESORT: <link> tag (may not work for canvas but better than crashing)
-// ─────────────────────────────────────────────────────────────────────────────
 async function injectLinkFallback(fontFamily: string, fontSize: number): Promise<void> {
   const id = `gfont-${fontFamily.replace(/\s+/g, "-")}`;
   if (!document.getElementById(id)) {
@@ -167,10 +206,8 @@ async function injectLinkFallback(fontFamily: string, fontSize: number): Promise
       document.head.appendChild(link);
     });
   }
-  try {
-    await document.fonts.load(`normal ${fontSize}px "${fontFamily}"`);
-  } catch { /* ignore */ }
-  await delay(500);
+  try { await document.fonts.load(`normal ${fontSize}px "${fontFamily}"`); } catch { }
+  await delay(400);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
