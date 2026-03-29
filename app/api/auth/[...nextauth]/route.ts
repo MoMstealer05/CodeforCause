@@ -19,10 +19,11 @@ const handler = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true, 
-      // 🚀 THE OAUTH 400 FIX: Forces clean auth flow for Brave/Mobile cache
+      // 🚀 THE FIX: Forces Google to ignore the broken mobile cache 
+      // and issue a fresh session token every time.
       authorization: {
         params: {
-          prompt: "consent",
+          prompt: "login",
           access_type: "offline",
           response_type: "code"
         }
@@ -54,22 +55,11 @@ const handler = NextAuth({
   session: {
     strategy: "jwt",
   },
-  // 🚀 THE STRICT BROWSER FIX: Configures cookies to survive cross-site Brave redirects
-  cookies: {
-    pkceCodeVerifier: {
-      name: "next-auth.pkce.code_verifier",
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: process.env.NODE_ENV === "production",
-      },
-    },
-  },
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         try {
+          // Syncs Google User to your Firestore Database
           const userRef = doc(db, "users", user.id); 
           await setDoc(userRef, {
             displayName: user.name,
@@ -107,10 +97,7 @@ const handler = NextAuth({
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // 🚀 THE ERROR LOOP FIX: Safely bounce back home on Google 400 errors
-      if (url.includes("error=OAuthCallback") || url.includes("error=AccessDenied")) {
-        return baseUrl;
-      }
+      // Let NextAuth handle its own native routing
       if (url.startsWith("/")) return `${baseUrl}${url}`;
       else if (new URL(url).origin === baseUrl) return url;
       return baseUrl;
