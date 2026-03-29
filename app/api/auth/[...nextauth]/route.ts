@@ -19,7 +19,7 @@ const handler = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true, 
-      // 🚀 THE OAUTH 400 FIX: Forces clean auth flow for Brave/Mobile
+      // 🚀 THE OAUTH 400 FIX: Forces clean auth flow for Brave/Mobile cache
       authorization: {
         params: {
           prompt: "consent",
@@ -37,10 +37,12 @@ const handler = NextAuth({
       async authorize(credentials) {
         const email = credentials?.email || (credentials as any)?.username;
         
+        // Master Admin Bypass
         if (email === "23ec017@charusat.edu.in" && credentials?.password === "admin123") {
           return { id: email, email: email, name: "Master Admin" };
         }
         
+        // Fallback Access
         if (email) {
           return { id: email, email: email, name: email.split('@')[0] };
         }
@@ -105,7 +107,7 @@ const handler = NextAuth({
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // 🚀 THE ERROR LOOP FIX
+      // 🚀 THE ERROR LOOP FIX: Safely bounce back home on Google 400 errors
       if (url.includes("error=OAuthCallback") || url.includes("error=AccessDenied")) {
         return baseUrl;
       }
