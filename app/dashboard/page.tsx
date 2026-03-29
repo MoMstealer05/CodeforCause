@@ -204,7 +204,7 @@ export default function UserDashboard() {
                   </div>
                 )) : (
                   <div className="text-center py-20 border border-dashed border-white/10 rounded-3xl bg-white/[0.02]">
-                    <p className="text-gray-500 text-xs uppercase tracking-widest mb-4">No Active Missions Found.</p>
+                    <p className="text-gray-500 text-xs uppercase tracking-widest mb-4">No Events Registered.</p>
                     <Link href="/events" className="text-[#00d2ff] border border-[#00d2ff]/30 px-6 py-3 rounded-xl text-xs uppercase tracking-widest hover:bg-[#00d2ff] hover:text-black transition-all">
                       Browse_Network_Events
                     </Link>
@@ -234,7 +234,7 @@ export default function UserDashboard() {
                   </div>
                 )) : (
                   <div className="col-span-1 md:col-span-2 text-center py-20 border border-dashed border-white/10 rounded-3xl bg-white/[0.02]">
-                    <p className="text-gray-500 text-xs uppercase tracking-widest">No Clearance Badges Issued Yet.</p>
+                    <p className="text-gray-500 text-xs uppercase tracking-widest">No Certificates Issued.</p>
                   </div>
                 )}
               </div>
