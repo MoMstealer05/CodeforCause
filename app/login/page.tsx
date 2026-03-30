@@ -4,7 +4,7 @@ import { signIn as nextAuthSignIn } from "next-auth/react";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation"; // 🚀 Added useSearchParams
 import Link from "next/link";
 
 function LoginContent() {
@@ -14,6 +14,10 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const router = useRouter();
+  
+  // 🚀 Catch the error parameter from the URL
+  const searchParams = useSearchParams();
+  const urlError = searchParams?.get("error");
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,10 +73,10 @@ function LoginContent() {
     <main style={{ minHeight: "calc(100vh - 50px)", backgroundColor: "#050A14", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
       <div style={{
         width: "100%", maxWidth: "450px", backgroundColor: "#0B111A",
-        border: `1px solid ${errorMsg ? "#ff5555" : "rgba(0,210,255,0.2)"}`,
+        border: `1px solid ${errorMsg || urlError === "AccessDenied" ? "#ff5555" : "rgba(0,210,255,0.2)"}`,
         borderRadius: "24px", padding: "48px 32px", textAlign: "center",
         transition: "all 0.3s ease",
-        boxShadow: errorMsg ? "0 0 20px rgba(255, 85, 85, 0.1)" : "none"
+        boxShadow: errorMsg || urlError === "AccessDenied" ? "0 0 20px rgba(255, 85, 85, 0.1)" : "none"
       }}>
 
         <div style={{ marginBottom: "32px" }}>
@@ -82,6 +86,22 @@ function LoginContent() {
         </div>
 
         <h1 style={{ fontSize: "24px", fontWeight: 900, color: "#fff", marginBottom: "8px" }}>Root Access</h1>
+
+        {/* 🚀 THE ACCESS DENIED WARNING BOX */}
+        {urlError === "AccessDenied" && (
+          <div style={{
+            color: "#ff5555", backgroundColor: "rgba(255, 85, 85, 0.1)",
+            border: "1px solid #ff5555", padding: "16px", fontSize: "11px",
+            fontWeight: "bold", fontFamily: "monospace", marginTop: "20px",
+            borderRadius: "8px", animation: "shake 0.4s ease-in-out"
+          }}>
+            <span style={{ fontSize: "24px", display: "block", marginBottom: "8px" }}>⚠️</span>
+            <div style={{ letterSpacing: "2px", marginBottom: "4px" }}>CLEARANCE DENIED</div>
+            <div style={{ color: "#aaa", fontSize: "10px", fontWeight: "normal", letterSpacing: "1px" }}>
+              A VALID UNIVERSITY EMAIL (.EDU OR .AC) IS REQUIRED.
+            </div>
+          </div>
+        )}
 
         {errorMsg && (
           <div style={{
@@ -94,7 +114,7 @@ function LoginContent() {
           </div>
         )}
 
-        <form onSubmit={handleEmailSignIn} style={{ textAlign: "left", marginTop: errorMsg ? "15px" : "30px" }}>
+        <form onSubmit={handleEmailSignIn} style={{ textAlign: "left", marginTop: (errorMsg || urlError) ? "15px" : "30px" }}>
           <div style={{ marginBottom: "20px" }}>
             <label style={{ color: "#fff", fontSize: "10px", display: "block", marginBottom: "8px", opacity: 0.6 }}>
               IDENTITY (EMAIL_OR_FULL_NAME)
