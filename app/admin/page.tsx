@@ -14,6 +14,7 @@ type QuestionType = "SHORT" | "PARAGRAPH" | "MCQ" | "CHECKBOX" | "DROPDOWN" | "E
 interface FormQuestion { id: string; type: QuestionType; label: string; required: boolean; options?: string[]; }
 interface FormSchema { id?: string; title: string; description: string; eventId: string; questions: FormQuestion[]; createdAt?: any; }
 interface Registration { id?: string; formId: string; eventId: string; eventTitle?: string; userEmail: string; userName?: string; responses: Record<string, any>; attendanceStatus: "REGISTERED" | "PRESENT" | "ABSENT"; certificateIssued?: boolean; submittedAt: string; }
+interface ArchiveEntry { id?: string; title: string; date: string; category: string; venue: string; description: string; outcome: string; participants: number; faculty: string[]; students: string[]; status: string; timestamp?: any; }
 
 const NAME_KEYWORDS = ["name","fullname","full_name","yourname","participant","studentname","attendee","naam"];
 const extractName = (reg: Registration): string => {
@@ -73,24 +74,13 @@ const cyberStyles = `
   .name-handle:active{cursor:grabbing}
   .guide-h{position:absolute;left:0;right:0;height:1px;background:rgba(255,184,108,0.4);pointer-events:none}
   .guide-v{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,184,108,0.4);pointer-events:none}
-
-  /* KEY FIX: prevent horizontal overflow everywhere */
   *{box-sizing:border-box;}
   html,body{overflow-x:hidden;max-width:100vw;}
   input,select,textarea{max-width:100%;min-width:0;}
-
-  /* date/time inputs on mobile — prevent intrinsic width blowout */
-  input[type="date"],input[type="time"]{
-    width:100%;
-    min-width:0;
-    max-width:100%;
-  }
-
-  /* modal scroll lock body when open */
+  input[type="date"],input[type="time"]{width:100%;min-width:0;max-width:100%;}
   body.modal-open{overflow:hidden;}
 `;
 
-/* Base input class — min-w-0 is CRITICAL to prevent flex/grid overflow */
 const ai = "bg-black/60 border border-white/10 rounded-xl p-3 text-xs outline-none focus:border-[#00d2ff] w-full min-w-0 transition-all text-white font-mono block";
 
 const uid = () => Math.random().toString(36).slice(2,9);
@@ -160,7 +150,6 @@ function CertPlacementPicker({previewUrl,nameX,nameY,fontSize,fontColor,fontFami
   return (
     <div className="space-y-4">
       <p className="text-[9px] text-[#ffb86c] uppercase font-bold tracking-widest">Name Placement — drag the label or click anywhere</p>
-
       <div ref={canvasRef} className="cert-canvas border border-[#ffb86c]/30" onClick={handleClick}>
         <img src={previewUrl} alt="cert" draggable={false}/>
         {showGuides&&<><div className="guide-h" style={{top:`${nameY}%`}}/><div className="guide-v" style={{left:`${nameX}%`}}/></>}
@@ -170,7 +159,6 @@ function CertPlacementPicker({previewUrl,nameX,nameY,fontSize,fontColor,fontFami
           PARTICIPANT NAME
         </div>
       </div>
-
       <div className="grid grid-cols-3 gap-3">
         {[{label:"X Position",val:nameX,fn:onChangeX},{label:"Y Position",val:nameY,fn:onChangeY},{label:"Font Size",val:fontSize,fn:onChangeFontSize,min:12,max:120}].map(({label,val,fn,min=0,max=100})=>(
           <div key={label}>
@@ -182,7 +170,6 @@ function CertPlacementPicker({previewUrl,nameX,nameY,fontSize,fontColor,fontFami
           </div>
         ))}
       </div>
-
       <div>
         <label className="text-[8px] text-gray-500 uppercase block mb-2">Font Color</label>
         <div className="flex gap-2 flex-wrap items-center">
@@ -193,7 +180,6 @@ function CertPlacementPicker({previewUrl,nameX,nameY,fontSize,fontColor,fontFami
           <span className="text-[9px] text-gray-500 font-mono ml-1">{fontColor}</span>
         </div>
       </div>
-
       <div>
         <label className="text-[8px] text-gray-500 uppercase block mb-2">
           Font Family — <span className="text-[#ffb86c]" style={{fontFamily:`'${fontFamily}',serif`}}>{fontFamily}</span>
@@ -225,7 +211,6 @@ function CertPlacementPicker({previewUrl,nameX,nameY,fontSize,fontColor,fontFami
           {filtered.length===0&&<p className="col-span-2 text-center text-[10px] text-gray-600 py-6 uppercase tracking-widest">No fonts match</p>}
         </div>
       </div>
-
       <div className="bg-black/40 border border-white/5 rounded-xl px-4 py-3 font-mono text-[10px] text-[#ffb86c] grid grid-cols-2 md:grid-cols-5 gap-3">
         <div><span className="text-gray-600 block text-[8px]">nameX</span>{nameX}%</div>
         <div><span className="text-gray-600 block text-[8px]">nameY</span>{nameY}%</div>
@@ -242,45 +227,68 @@ function CertPlacementPicker({previewUrl,nameX,nameY,fontSize,fontColor,fontFami
 // ════════════════════════════════════════════════════════
 export default function AdminDashboard(){
   const {data:session} = useSession();
-  const [activeModal,setActiveModal] = useState<"EVENT"|"MEMBER"|"FORM_BUILDER"|"CERT_DESIGN"|null>(null);
+  const [activeModal,setActiveModal] = useState<"EVENT"|"MEMBER"|"FORM_BUILDER"|"CERT_DESIGN"|"ARCHIVE"|null>(null);
   const [loading,setLoading] = useState(false);
+
+  // ── Firestore data ──
   const [events,setEvents] = useState<any[]>([]);
   const [teamMembers,setTeamMembers] = useState<any[]>([]);
   const [forms,setForms] = useState<FormSchema[]>([]);
   const [registrations,setRegistrations] = useState<Registration[]>([]);
+  const [archiveEvents,setArchiveEvents] = useState<ArchiveEntry[]>([]);
+
+  // ── UI state ──
   const [file,setFile] = useState<File|null>(null);
   const [previewUrl,setPreviewUrl] = useState<string|null>(null);
   const [avatarError,setAvatarError] = useState(false);
   const [adminDropdownOpen,setAdminDropdownOpen] = useState(false);
   const adminDropdownRef = useRef<HTMLDivElement>(null);
   const [editingId,setEditingId] = useState<string|null>(null);
+
+  // ── Event form ──
   const [newEvent,setNewEvent] = useState({title:"",date:"",startTime:"",endDate:"",endTime:"",venue:"",category:"Workshop",description:""});
+
+  // ── Attendance ──
   const [selectedRegIds,setSelectedRegIds] = useState<Set<string>>(new Set());
+
+  // ── Member form ──
   const [newMember,setNewMember] = useState({name:"",role:"",section:"Student",linkedin:"",hierarchy:1,collegeId:""});
+
+  // ── Form builder ──
   const [formSchema,setFormSchema] = useState<FormSchema>({title:"",description:"",eventId:"",questions:[]});
   const [editingFormId,setEditingFormId] = useState<string|null>(null);
   const [formError,setFormError] = useState<string|null>(null);
- const [certDesign, setCertDesign] = useState({ eventId: "", templateUrl: "", nameX: 50, nameY: 50, fontSize: 48, fontColor: "#ffffff", fontFamily: "monospace" });
+
+  // ── Cert design ──
+  const [certDesign,setCertDesign] = useState({eventId:"",templateUrl:"",nameX:50,nameY:50,fontSize:48,fontColor:"#ffffff",fontFamily:"monospace"});
   const [certFile,setCertFile] = useState<File|null>(null);
   const [certPreview,setCertPreview] = useState<string|null>(null);
+
+  // ── Attendance filter ──
   const [attendanceEventId,setAttendanceEventId] = useState("");
 
-  // Lock body scroll when modal is open
+  // ── Archive form ──
+  const [newArchive,setNewArchive] = useState({
+    title:"", date:"", category:"WORKSHOP", venue:"",
+    description:"", outcome:"", participants:"", faculty:"", students:"",
+  });
+  const [editingArchiveId,setEditingArchiveId] = useState<string|null>(null);
+
+  // Lock body scroll when modal open
   useEffect(()=>{
-    if(activeModal){
-      document.body.classList.add("modal-open");
-    } else {
-      document.body.classList.remove("modal-open");
-    }
+    if(activeModal){ document.body.classList.add("modal-open"); }
+    else { document.body.classList.remove("modal-open"); }
     return ()=>document.body.classList.remove("modal-open");
   },[activeModal]);
 
+  // Close admin dropdown on outside click
   useEffect(()=>{
     const h=(e:MouseEvent)=>{ if(adminDropdownRef.current&&!adminDropdownRef.current.contains(e.target as Node)) setAdminDropdownOpen(false); };
     document.addEventListener("mousedown",h);
     return ()=>document.removeEventListener("mousedown",h);
   },[]);
 
+  // ── Firestore listeners ──
   useEffect(()=>{
     const unE=onSnapshot(query(collection(db,"events"),orderBy("timestamp","desc")),s=>setEvents(s.docs.map(d=>({id:d.id,...d.data()}))));
     const unT=onSnapshot(query(collection(db,"team"),orderBy("hierarchy","asc")),s=>setTeamMembers(s.docs.map(d=>({id:d.id,...d.data()}))));
@@ -290,7 +298,8 @@ export default function AdminDashboard(){
       setForms(docs);
     });
     const unR=onSnapshot(query(collection(db,"registrations"),orderBy("submittedAt","desc")),s=>setRegistrations(s.docs.map(d=>({id:d.id,...d.data()} as Registration))));
-    return ()=>{unE();unT();unF();unR();};
+    const unA=onSnapshot(query(collection(db,"archive"),orderBy("date","desc")),s=>setArchiveEvents(s.docs.map(d=>({id:d.id,...d.data()} as ArchiveEntry))));
+    return ()=>{ unE(); unT(); unF(); unR(); unA(); };
   },[]);
 
   const emailPrefix = session?.user?.email?.split("@")[0]||"ADMIN";
@@ -304,6 +313,7 @@ export default function AdminDashboard(){
     }
   };
 
+  // ── Event save ──
   const handleEventDeploy = async(e:React.FormEvent)=>{
     e.preventDefault();
     if(!file&&!editingId) return alert("MISSING_POSTER");
@@ -320,6 +330,7 @@ export default function AdminDashboard(){
     setLoading(false);
   };
 
+  // ── Member save ──
   const handleMemberDeploy = async(e:React.FormEvent)=>{
     e.preventDefault();
     if(!file&&!editingId) return alert("MISSING_PHOTO");
@@ -334,6 +345,7 @@ export default function AdminDashboard(){
     setLoading(false);
   };
 
+  // ── Form builder helpers ──
   const addQ=(type:QuestionType)=>setFormSchema(f=>({...f,questions:[...f.questions,{id:uid(),type,label:"",required:false,options:["MCQ","CHECKBOX","DROPDOWN"].includes(type)?["Option 1"]:undefined}]}));
   const updQ=(id:string,p:Partial<FormQuestion>)=>setFormSchema(f=>({...f,questions:f.questions.map(q=>q.id===id?{...q,...p}:q)}));
   const delQ=(id:string)=>setFormSchema(f=>({...f,questions:f.questions.filter(q=>q.id!==id)}));
@@ -341,6 +353,7 @@ export default function AdminDashboard(){
   const updOpt=(qId:string,i:number,v:string)=>setFormSchema(f=>({...f,questions:f.questions.map(q=>q.id===qId?{...q,options:q.options?.map((o,j)=>j===i?v:o)}:q)}));
   const delOpt=(qId:string,i:number)=>setFormSchema(f=>({...f,questions:f.questions.map(q=>q.id===qId?{...q,options:q.options?.filter((_,j)=>j!==i)}:q)}));
 
+  // ── Form save ──
   const handleFormSave = async()=>{
     setFormError(null);
     if(!formSchema.title.trim()){setFormError("Form title is required.");return;}
@@ -361,6 +374,7 @@ export default function AdminDashboard(){
     setLoading(false);
   };
 
+  // ── Cert save ──
   const handleCertDesignSave = async()=>{
     if(!certDesign.eventId) return alert("SELECT_EVENT");
     setLoading(true);
@@ -392,6 +406,38 @@ export default function AdminDashboard(){
     setLoading(false);
   };
 
+  // ── Archive save ──
+  const handleArchiveSave = async()=>{
+    if(!newArchive.title.trim()||!newArchive.date.trim()||!newArchive.venue.trim()){
+      return alert("MISSING_REQUIRED_FIELDS: title, date, venue");
+    }
+    setLoading(true);
+    try{
+      const payload:Omit<ArchiveEntry,"id"> = {
+        title:      newArchive.title.trim(),
+        date:       newArchive.date.trim(),
+        category:   newArchive.category,
+        venue:      newArchive.venue.trim(),
+        description:newArchive.description.trim(),
+        outcome:    newArchive.outcome.trim(),
+        participants:parseInt(newArchive.participants)||0,
+        faculty:    newArchive.faculty.split(",").map(s=>s.trim()).filter(Boolean),
+        students:   newArchive.students.split(",").map(s=>s.trim()).filter(Boolean),
+        status:     "ARCHIVED",
+      };
+      if(editingArchiveId){
+        await updateDoc(doc(db,"archive",editingArchiveId),payload);
+      } else {
+        await addDoc(collection(db,"archive"),{...payload,timestamp:serverTimestamp()});
+      }
+      // reset form but stay on modal to allow adding another
+      setNewArchive({title:"",date:"",category:"WORKSHOP",venue:"",description:"",outcome:"",participants:"",faculty:"",students:""});
+      setEditingArchiveId(null);
+    }catch(err){alert("ARCHIVE_SAVE_FAILED: "+err);}
+    setLoading(false);
+  };
+
+  // ── Attendance helpers ──
   const updateAttendance=async(id:string,s:"PRESENT"|"ABSENT"|"REGISTERED")=>updateDoc(doc(db,"registrations",id),{attendanceStatus:s});
   const toggleSel=(id:string)=>setSelectedRegIds(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
   const markAllPresent=async()=>{ if(!confirm(`MARK ALL ${filteredRegs.length} AS PRESENT?`)) return; const b=writeBatch(db); filteredRegs.forEach(r=>{if(r.id)b.update(doc(db,"registrations",r.id),{attendanceStatus:"PRESENT"});}); await b.commit(); };
@@ -399,20 +445,43 @@ export default function AdminDashboard(){
   const toggleSelAll=()=>{ if(selectedRegIds.size===filteredRegs.length) setSelectedRegIds(new Set()); else setSelectedRegIds(new Set(filteredRegs.map(r=>r.id!).filter(Boolean))); };
   const delReg=async(id:string)=>{ if(confirm("REMOVE_REGISTRATION?")) await deleteDoc(doc(db,"registrations",id)); };
   const filteredRegs=attendanceEventId?registrations.filter(r=>r.eventId===attendanceEventId):registrations;
+
+  // ── Edit helpers ──
   const openEditModal=(item:any,type:"EVENT"|"MEMBER")=>{
     setEditingId(item.id);setActiveModal(type);
     if(type==="EVENT"){setNewEvent({title:item.title,date:item.date,startTime:item.startTime||"",endDate:item.endDate||"",endTime:item.endTime||"",venue:item.venue,category:item.category,description:item.description});setPreviewUrl(item.posterUrl);}
     else{setNewMember({name:item.name,role:item.role,section:item.section,linkedin:item.linkedin,hierarchy:item.hierarchy,collegeId:item.collegeId||""});setPreviewUrl(item.image);}
   };
+
+  const openEditArchive=(item:ArchiveEntry)=>{
+    setEditingArchiveId(item.id||null);
+    setNewArchive({
+      title:       item.title,
+      date:        item.date,
+      category:    item.category,
+      venue:       item.venue,
+      description: item.description,
+      outcome:     item.outcome,
+      participants:String(item.participants),
+      faculty:     Array.isArray(item.faculty)?item.faculty.join(", "):item.faculty||"",
+      students:    Array.isArray(item.students)?item.students.join(", "):item.students||"",
+    });
+  };
+
+  // ── Close modal ──
   const closeModal=()=>{
-    setActiveModal(null);setFile(null);setPreviewUrl(null);setEditingId(null);
+    setActiveModal(null);
+    setFile(null);setPreviewUrl(null);setEditingId(null);
     setEditingFormId(null);setCertFile(null);setCertPreview(null);setFormError(null);
     setNewEvent({title:"",date:"",startTime:"",endDate:"",endTime:"",venue:"",category:"Workshop",description:""});
     setNewMember({name:"",role:"",section:"Student",linkedin:"",hierarchy:1,collegeId:""});
     setFormSchema({title:"",description:"",eventId:"",questions:[]});
     setCertDesign({eventId:"",templateUrl:"",nameX:50,nameY:45,fontSize:48,fontColor:"#ffffff",fontFamily:"Playfair Display"});
     setAttendanceEventId("");setSelectedRegIds(new Set());
+    setNewArchive({title:"",date:"",category:"WORKSHOP",venue:"",description:"",outcome:"",participants:"",faculty:"",students:""});
+    setEditingArchiveId(null);
   };
+
   const presentCount=filteredRegs.filter(r=>r.attendanceStatus==="PRESENT").length;
   const absentCount=filteredRegs.filter(r=>r.attendanceStatus==="ABSENT").length;
 
@@ -460,15 +529,16 @@ export default function AdminDashboard(){
             <p className="text-gray-500 text-[10px] mt-1 uppercase tracking-widest truncate">{session?.user?.email||"ID: SUPER_ADMIN"}</p>
           </div>
 
-          {/* Action Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-10 md:mb-16">
-            <AC label="Deploy Event" sub="Mission Registry" color="#00d2ff" onClick={()=>setActiveModal("EVENT")}/>
-            <AC label="Recruit Member" sub="Personnel Registry" color="#50fa7b" onClick={()=>setActiveModal("MEMBER")}/>
-            <AC label="Form Builder" sub="Registration Forms" color="#bd93f9" onClick={()=>{setFormError(null);setActiveModal("FORM_BUILDER");}}/>
-            <AC label="Cert Designer" sub="Certificate Distribution" color="#ffb86c" onClick={()=>setActiveModal("CERT_DESIGN")}/>
+          {/* ── ACTION CARDS ── */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-10 md:mb-16">
+            <AC label="Deploy Event"     sub="Mission Registry"       color="#00d2ff" onClick={()=>setActiveModal("EVENT")}/>
+            <AC label="Recruit Member"   sub="Personnel Registry"     color="#50fa7b" onClick={()=>setActiveModal("MEMBER")}/>
+            <AC label="Form Builder"     sub="Registration Forms"     color="#bd93f9" onClick={()=>{setFormError(null);setActiveModal("FORM_BUILDER");}}/>
+            <AC label="Cert Designer"    sub="Certificate Distribution" color="#ffb86c" onClick={()=>setActiveModal("CERT_DESIGN")}/>
+            <AC label="Archive Manager"  sub="Mission Archive"        color="#ff79c6" onClick={()=>setActiveModal("ARCHIVE")}/>
           </div>
 
-          {/* ATTENDANCE */}
+          {/* ── ATTENDANCE ── */}
           <div className="mb-10">
             <div className="bg-[#0a0c10] border border-[#bd93f9]/20 rounded-2xl md:rounded-3xl p-4 md:p-6 font-mono overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -513,24 +583,16 @@ export default function AdminDashboard(){
                     return (
                       <div key={reg.id} className={`grid gap-2 items-center p-3 rounded-xl border transition-all fade-in ${isSel?"bg-[#bd93f9]/10 border-[#bd93f9]/30":"bg-white/5 border-white/5 hover:border-white/15"}`}
                         style={{gridTemplateColumns:"auto 1fr auto",gridTemplateRows:"auto"}}>
-                        {/* checkbox */}
                         <div onClick={()=>reg.id&&toggleSel(reg.id)} className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-all shrink-0 ${isSel?"bg-[#bd93f9] border-[#bd93f9]":"border-white/20 hover:border-[#bd93f9]"}`}>{isSel&&<span className="text-black text-[8px] font-black">✓</span>}</div>
-                        {/* name + email */}
                         <div className="min-w-0">
                           <p className="text-[10px] font-bold uppercase text-white truncate">{name}</p>
                           <p className="text-[9px] text-gray-500 truncate">{reg.userEmail}</p>
-                          {/* event title — visible on mobile too */}
                           <p className="text-[9px] text-[#bd93f9] truncate uppercase mt-0.5 md:hidden">{ev?.title||reg.eventId}</p>
                         </div>
-                        {/* del btn */}
                         <button onClick={()=>reg.id&&delReg(reg.id)} className="text-[#ff5555] text-[10px] font-bold uppercase opacity-30 hover:opacity-100 transition-opacity shrink-0">Del</button>
-
-                        {/* event title desktop */}
                         <div className="hidden md:block col-start-2 min-w-0">
                           <p className="text-[9px] text-[#bd93f9] truncate uppercase">{ev?.title||reg.eventId}</p>
                         </div>
-
-                        {/* attendance buttons — full width row below on mobile, inline on desktop */}
                         <div className="col-span-3 flex gap-1 mt-1">
                           {(["REGISTERED","PRESENT","ABSENT"] as const).map(s=>(
                             <button key={s} onClick={()=>reg.id&&updateAttendance(reg.id,s)}
@@ -547,7 +609,7 @@ export default function AdminDashboard(){
             </div>
           </div>
 
-          {/* REGISTRY LISTS */}
+          {/* ── REGISTRY LISTS ── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 pb-12">
             <RL title="Mission_Registry" items={events} onEdit={(i:any)=>openEditModal(i,"EVENT")} onDel={(id:string)=>deleteDoc(doc(db,"events",id))} color="#00d2ff" type="event"/>
             <RL title="Personnel_Registry" items={teamMembers} onEdit={(i:any)=>openEditModal(i,"MEMBER")} onDel={(id:string)=>deleteDoc(doc(db,"team",id))} color="#50fa7b" type="member"/>
@@ -576,6 +638,7 @@ export default function AdminDashboard(){
               </div>
             </div>
           </div>
+
         </div>
 
         {/* ══════════════════════════════════════════════
@@ -606,7 +669,6 @@ export default function AdminDashboard(){
                         <span className="text-[9px] text-[#bd93f9] font-black uppercase tracking-widest">Q{qi+1} · {q.type}</span>
                         <button onClick={()=>delQ(q.id)} className="text-[#ff5555] text-[10px] font-bold opacity-50 hover:opacity-100 shrink-0">✕ Remove</button>
                       </div>
-                      {/* Question label + type + required — stack on mobile, row on md+ */}
                       <div className="flex flex-col md:flex-row gap-2">
                         <input placeholder="Question label *" value={q.label} onChange={e=>updQ(q.id,{label:e.target.value})} className={`${ai} flex-1`}/>
                         <select value={q.type} onChange={e=>updQ(q.id,{type:e.target.value as QuestionType})} className="bg-black/60 border border-white/10 rounded-xl px-3 py-3 text-[10px] text-white outline-none focus:border-[#bd93f9] font-mono min-w-0 w-full md:w-auto">
@@ -683,7 +745,6 @@ export default function AdminDashboard(){
                   )}
                   <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e=>{const f=e.target.files?.[0];if(f){setCertFile(f);setCertPreview(URL.createObjectURL(f));}}}/>
                 </div>
-
                 {certPreview&&(
                   <CertPlacementPicker
                     previewUrl={certPreview}
@@ -697,11 +758,179 @@ export default function AdminDashboard(){
                     onChangeFont={v=>setCertDesign(c=>({...c,fontFamily:v}))}
                   />
                 )}
-
                 <button onClick={handleCertDesignSave} disabled={loading} className="w-full bg-[#ffb86c] text-black font-black p-4 rounded-2xl uppercase tracking-[0.2em] transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 text-xs shadow-lg shadow-[#ffb86c]/20">
                   {loading?"ISSUING_CERTIFICATES...":"ISSUE_CERTIFICATES →"}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════
+            ARCHIVE MANAGER MODAL
+        ══════════════════════════════════════════════ */}
+        {activeModal==="ARCHIVE"&&(
+          <div className="fixed inset-0 z-[20000] flex items-start justify-center bg-black/95 backdrop-blur-md overflow-y-auto overflow-x-hidden p-4 md:p-6">
+            <div className="bg-[#0B111A] border border-[#ff79c6]/40 w-full max-w-3xl rounded-2xl md:rounded-3xl p-5 md:p-10 shadow-2xl my-4 overflow-hidden">
+
+              {/* Header */}
+              <div className="flex justify-between items-center mb-6 gap-2">
+                <h2 className="font-black tracking-[0.2em] text-[10px] md:text-xs uppercase text-[#ff79c6] truncate">
+                  [ {editingArchiveId?"UPDATE_ARCHIVE_ENTRY":"ARCHIVE_MANAGER"} ]
+                </h2>
+                <button onClick={closeModal} className="text-gray-500 hover:text-white text-lg shrink-0">✕</button>
+              </div>
+
+              {/* Existing entries list — hidden while editing */}
+              {!editingArchiveId&&(
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">
+                      Archived Entries <span className="text-[#ff79c6]">({archiveEvents.length})</span>
+                    </p>
+                  </div>
+                  <div className="space-y-2 max-h-52 overflow-y-auto pr-1 custom-scrollbar mb-6">
+                    {archiveEvents.length===0&&(
+                      <p className="text-[10px] text-gray-600 uppercase text-center py-6 tracking-widest">No entries yet — add the first one below</p>
+                    )}
+                    {archiveEvents.map(ev=>(
+                      <div key={ev.id} className="flex items-center gap-3 bg-white/5 p-3 rounded-xl border border-white/5 hover:border-white/15 transition-all">
+                        {/* Category badge */}
+                        <span className={`text-[8px] font-black uppercase px-2 py-1 rounded border shrink-0 ${
+                          ev.category==="HACKATHON"
+                            ?"bg-[#bd93f9]/10 border-[#bd93f9]/30 text-[#bd93f9]"
+                            :"bg-[#ffb86c]/10 border-[#ffb86c]/30 text-[#ffb86c]"
+                        }`}>{ev.category}</span>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold uppercase truncate text-white">{ev.title}</p>
+                          <p className="text-[9px] text-gray-500 truncate">{ev.date} · {ev.venue} · {ev.participants} participants</p>
+                        </div>
+                        {/* Actions */}
+                        <div className="flex gap-3 shrink-0">
+                          <button
+                            onClick={()=>openEditArchive(ev)}
+                            className="text-[#ff79c6] text-[10px] font-bold uppercase opacity-50 hover:opacity-100 transition-opacity"
+                          >Edit</button>
+                          <button
+                            onClick={()=>confirm("DELETE_ARCHIVE_ENTRY?")&&ev.id&&deleteDoc(doc(db,"archive",ev.id))}
+                            className="text-[#ff5555] text-[10px] font-bold uppercase opacity-30 hover:opacity-100 transition-opacity"
+                          >Del</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="h-px bg-white/5 mb-6"/>
+                  <p className="text-[9px] text-[#ff79c6] uppercase tracking-widest font-bold mb-4">+ New Entry</p>
+                </>
+              )}
+
+              {/* Edit mode back button */}
+              {editingArchiveId&&(
+                <button
+                  onClick={()=>{setEditingArchiveId(null);setNewArchive({title:"",date:"",category:"WORKSHOP",venue:"",description:"",outcome:"",participants:"",faculty:"",students:""}); }}
+                  className="flex items-center gap-2 text-[9px] text-gray-400 hover:text-white uppercase font-bold mb-6 transition-colors"
+                >
+                  ← Back to List
+                </button>
+              )}
+
+              {/* Form */}
+              <div className="space-y-3 font-mono">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    placeholder="EVENT TITLE *"
+                    value={newArchive.title}
+                    className={`${ai} focus:border-[#ff79c6]`}
+                    onChange={e=>setNewArchive({...newArchive,title:e.target.value})}
+                  />
+                  <select
+                    className={`${ai} focus:border-[#ff79c6]`}
+                    value={newArchive.category}
+                    onChange={e=>setNewArchive({...newArchive,category:e.target.value})}
+                  >
+                    <option value="WORKSHOP">WORKSHOP</option>
+                    <option value="HACKATHON">HACKATHON</option>
+                    <option value="SEMINAR">SEMINAR</option>
+                    <option value="COMPETITION">COMPETITION</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[9px] text-[#ff79c6] uppercase ml-1 font-bold tracking-widest block">Date *</label>
+                    <input
+                      placeholder="e.g. 2026-04-20 or 2026-04-20 to 2026-04-22"
+                      value={newArchive.date}
+                      className={`${ai} focus:border-[#ff79c6]`}
+                      onChange={e=>setNewArchive({...newArchive,date:e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[9px] text-gray-500 uppercase ml-1 tracking-widest block">Participants</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 80"
+                      value={newArchive.participants}
+                      className={`${ai} focus:border-[#ff79c6]`}
+                      onChange={e=>setNewArchive({...newArchive,participants:e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <input
+                  placeholder="VENUE *"
+                  value={newArchive.venue}
+                  className={`${ai} focus:border-[#ff79c6]`}
+                  onChange={e=>setNewArchive({...newArchive,venue:e.target.value})}
+                />
+
+                <textarea
+                  rows={3}
+                  placeholder="DESCRIPTION *"
+                  value={newArchive.description}
+                  className={`${ai} resize-none focus:border-[#ff79c6]`}
+                  onChange={e=>setNewArchive({...newArchive,description:e.target.value})}
+                />
+
+                <textarea
+                  rows={2}
+                  placeholder="OUTCOME — what participants achieved..."
+                  value={newArchive.outcome}
+                  className={`${ai} resize-none focus:border-[#ff79c6]`}
+                  onChange={e=>setNewArchive({...newArchive,outcome:e.target.value})}
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[9px] text-gray-500 uppercase ml-1 tracking-widest block">Faculty (comma-separated)</label>
+                    <input
+                      placeholder="Dr. Smith, Prof. Jones"
+                      value={newArchive.faculty}
+                      className={`${ai} focus:border-[#ff79c6]`}
+                      onChange={e=>setNewArchive({...newArchive,faculty:e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[9px] text-gray-500 uppercase ml-1 tracking-widest block">Student Coordinators (comma-separated)</label>
+                    <input
+                      placeholder="Alice, Bob, Carol"
+                      value={newArchive.students}
+                      className={`${ai} focus:border-[#ff79c6]`}
+                      onChange={e=>setNewArchive({...newArchive,students:e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleArchiveSave}
+                  disabled={loading}
+                  className="w-full bg-[#ff79c6] text-black font-black p-4 rounded-2xl uppercase tracking-[0.2em] transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 text-xs shadow-lg shadow-[#ff79c6]/20"
+                >
+                  {loading?"SAVING...":(editingArchiveId?"UPDATE_ENTRY →":"COMMIT_TO_ARCHIVE →")}
+                </button>
+              </div>
+
             </div>
           </div>
         )}
@@ -733,8 +962,6 @@ export default function AdminDashboard(){
                   <div className="space-y-3 font-mono">
                     <input required placeholder="TITLE" value={newEvent.title} className={ai} onChange={e=>setNewEvent({...newEvent,title:e.target.value})}/>
                     <input placeholder="CATEGORY" value={newEvent.category} className={ai} onChange={e=>setNewEvent({...newEvent,category:e.target.value})}/>
-
-                    {/* START DATE + TIME — 2 cols on sm+, stack on xs */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1 min-w-0">
                         <label className="text-[9px] text-[#00d2ff] uppercase ml-2 font-bold tracking-widest block">Start Date</label>
@@ -745,8 +972,6 @@ export default function AdminDashboard(){
                         <input type="time" value={newEvent.startTime} className={ai} onChange={e=>setNewEvent({...newEvent,startTime:e.target.value})}/>
                       </div>
                     </div>
-
-                    {/* END DATE + TIME */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1 min-w-0">
                         <label className="text-[9px] text-[#ffb86c] uppercase ml-2 font-bold tracking-widest block">End Date</label>
@@ -757,7 +982,6 @@ export default function AdminDashboard(){
                         <input type="time" value={newEvent.endTime} className={ai} onChange={e=>setNewEvent({...newEvent,endTime:e.target.value})}/>
                       </div>
                     </div>
-
                     <div className="relative min-w-0">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#00d2ff] text-[10px] font-black pointer-events-none z-10">LOC:</span>
                       <input required placeholder="VENUE_LOCATION" value={newEvent.venue} style={{paddingLeft:"52px"}} className={ai} onChange={e=>setNewEvent({...newEvent,venue:e.target.value})}/>
@@ -797,6 +1021,7 @@ export default function AdminDashboard(){
             </div>
           </div>
         )}
+
       </main>
     </div>
   );
